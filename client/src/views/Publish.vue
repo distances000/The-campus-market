@@ -136,7 +136,11 @@ async function handleUpload(o) {
     try {
         const r = await uploadImage(o.file);
         form.images.push(r.data.url);
-    } catch {}
+        o.onSuccess?.(r);
+    } catch (err) {
+        o.onError?.(err);
+        ElMessage.error("图片上传失败");
+    }
 }
 
 function removeImage(i) {

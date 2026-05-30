@@ -18,9 +18,15 @@ const routes = [
 ];
 
 const r = createRouter({ history: createWebHistory(), routes });
-r.beforeEach((to, from, next) => {
+r.beforeEach(async (to, from, next) => {
+    const userStore = useUserStore();
+    if (!userStore.authInitialized && userStore.token) {
+        await userStore.ensureAuth();
+    }
     document.title = to.meta.title ? to.meta.title + " - ????" : "????";
-    if (to.meta.requiresAuth) { if (!useUserStore().isLoggedIn) return next("/login"); }
+    if (to.meta.requiresAuth) {
+        if (!useUserStore().isLoggedIn) return next({ path: "/login", query: { redirect: to.fullPath } });
+    }
     next();
 });
 export default r;
