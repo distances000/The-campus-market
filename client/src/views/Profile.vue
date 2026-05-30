@@ -15,11 +15,7 @@
                 <el-form-item label="昵称"><el-input v-model="editForm.nickname"/></el-form-item>
                 <el-form-item label="校区">
                     <el-select v-model="editForm.campus" style="width:100%">
-                        <el-option label="校区A" value="校区A"/>
-                        <el-option label="校区B" value="校区B"/>
-                        <el-option label="校区C" value="校区C"/>
-                        <el-option label="校区D" value="校区D"/>
-                        <el-option label="其他" value="其他"/>
+                        <el-option v-for="option in campusOptions" :key="option.value" :label="option.label" :value="option.value"/>
                     </el-select>
                 </el-form-item>
                 <el-form-item label="个人简介"><el-input v-model="editForm.bio" type="textarea" :rows="3"/></el-form-item>
@@ -105,6 +101,7 @@ import { useUserStore } from "../stores/user";
 import { updateMe } from "../api/auth";
 import { getMyProducts, getMyFavorites, updateProduct, toggleFavorite } from "../api/products";
 import { getProductStatusMeta } from "../utils/product";
+import { CAMPUS_OPTIONS } from "../utils/options";
 import { Goods, Star, ArrowRight } from "@element-plus/icons-vue";
 
 const router = useRouter();
@@ -114,6 +111,7 @@ const saving = ref(false);
 const activeTab = ref("products");
 const myProducts = ref([]);
 const favoriteProducts = ref([]);
+const campusOptions = CAMPUS_OPTIONS;
 const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "" });
 const defImg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3C/svg%3E";
 

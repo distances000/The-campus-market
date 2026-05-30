@@ -26,7 +26,7 @@
     <el-col :span="12">
         <el-form-item label="分类">
             <el-select v-model="form.category" style="width:100%">
-                <el-option label="数码" value="digital"/><el-option label="书籍" value="books"/><el-option label="生活" value="life"/><el-option label="服饰" value="clothing"/><el-option label="运动" value="sports"/><el-option label="美妆" value="beauty"/><el-option label="其他" value="other"/>
+                <el-option v-for="option in productCategoryOptions" :key="option.value" :label="option.label" :value="option.value"/>
             </el-select>
         </el-form-item>
     </el-col>
@@ -40,7 +40,7 @@
 </el-row>
 <el-form-item label="校区">
     <el-select v-model="form.campus" style="width:100%" placeholder="请选择校区">
-        <el-option label="校区A" value="校区A"/><el-option label="校区B" value="校区B"/><el-option label="校区C" value="校区C"/><el-option label="校区D" value="校区D"/><el-option label="其他" value="其他"/>
+        <el-option v-for="option in campusOptions" :key="option.value" :label="option.label" :value="option.value"/>
     </el-select>
 </el-form-item>
 <el-form-item>
@@ -56,6 +56,7 @@ import { ElMessage } from "element-plus";
 import { useUserStore } from "../stores/user";
 import { createProduct, getProduct, updateProduct } from "../api/products";
 import { uploadImage } from "../api/upload";
+import { CAMPUS_OPTIONS, PRODUCT_CATEGORY_OPTIONS } from "../utils/options";
 import { Plus } from "@element-plus/icons-vue";
 
 const route = useRoute();
@@ -64,6 +65,8 @@ const userStore = useUserStore();
 const formRef = ref(null);
 const submitting = ref(false);
 const loadingProduct = ref(false);
+const campusOptions = CAMPUS_OPTIONS;
+const productCategoryOptions = PRODUCT_CATEGORY_OPTIONS;
 const form = reactive({
     images: [],
     title: "",
@@ -93,7 +96,7 @@ function resetForm() {
     form.original_price = null;
     form.category = "other";
     form.condition = "used";
-    form.campus = "";
+    form.campus = userStore.user?.campus || "";
 }
 
 function applyProduct(p) {

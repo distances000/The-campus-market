@@ -2,24 +2,24 @@
 <div class="home-page">
 <div class="category-bar"><div v-for="cat in categories" :key="cat.value" class="category-item" :class="{active:currentCategory===cat.value}" @click="selectCategory(cat.value)">{{cat.label}}</div></div>
 <div class="filter-bar">
-<el-select v-model="currentCampus" placeholder="????" size="default" clearable @change="loadProducts"><el-option v-for="c in campuses" :key="c" :label="c" :value="c"/></el-select>
-<el-select v-model="sortBy" size="default" @change="loadProducts"><el-option label="????" value="latest"/><el-option label="??????" value="price_asc"/><el-option label="??????" value="price_desc"/><el-option label="????" value="hot"/></el-select>
+<el-select v-model="currentCampus" placeholder="选择校区" size="default" clearable @change="loadProducts"><el-option v-for="c in campuses" :key="c.value" :label="c.label" :value="c.value"/></el-select>
+<el-select v-model="sortBy" size="default" @change="loadProducts"><el-option label="最新发布" value="latest"/><el-option label="价格从低到高" value="price_asc"/><el-option label="价格从高到低" value="price_desc"/><el-option label="最热" value="hot"/></el-select>
 </div>
 <div class="product-grid" v-if="products.length>0">
 <div v-for="p in products" :key="p.id" class="product-card" @click="$router.push('/product/'+p.id)">
 <div class="product-image"><img :src="getImg(p)" :alt="p.title" @error="onImgErr"/><span class="product-condition" v-if="p.condition">{{condMap[p.condition]||p.condition}}</span><span class="product-status" :class="'status-'+getProductStatusMeta(p.status).type">{{getProductStatusMeta(p.status).label}}</span></div>
 <div class="product-info"><h3 class="product-title">{{p.title}}</h3><div class="product-meta"><span class="product-price">&yen;{{p.price}}</span><span class="product-original" v-if="p.original_price">&yen;{{p.original_price}}</span></div><div class="product-footer"><span class="product-seller">{{p.seller_name}}</span><span class="product-campus" v-if="p.campus">{{p.campus}}</span></div></div>
 </div></div>
-<el-empty v-else description="????"/>
-<div class="load-more" v-if="hasMore"><el-button :loading="loading" @click="loadMore" size="large">????</el-button></div>
+<el-empty v-else description="暂无商品"/>
+<div class="load-more" v-if="hasMore"><el-button :loading="loading" @click="loadMore" size="large">加载更多</el-button></div>
 </div>
 </template>
 <script setup>
-import {ref,onMounted,watch} from "vue";import {useRoute} from "vue-router";import {getProducts} from "../api/products";import { getProductStatusMeta } from "../utils/product";
+import {ref,onMounted,watch} from "vue";import {useRoute} from "vue-router";import {getProducts} from "../api/products";import { getProductStatusMeta } from "../utils/product";import { CAMPUS_OPTIONS, PRODUCT_CATEGORY_FILTER_OPTIONS } from "../utils/options";
 const route=useRoute();
-const cats=[{label:"??",value:"all"},{label:"??",value:"digital"},{label:"??",value:"books"},{label:"??",value:"life"},{label:"??",value:"clothing"},{label:"??",value:"sports"},{label:"??",value:"beauty"},{label:"??",value:"other"}];
-const condMap={brand_new:"??",like_new:"????",used:"??",old:"??"};
-const campuses=["???","???","???","???","??"];
+const categories=PRODUCT_CATEGORY_FILTER_OPTIONS;
+const condMap={brand_new:"全新",like_new:"几乎全新",used:"二手",old:"较旧"};
+const campuses=CAMPUS_OPTIONS;
 const products=ref([]),currentCategory=ref("all"),currentCampus=ref(""),sortBy=ref("latest"),loading=ref(false),page=ref(1),total=ref(0),hasMore=ref(false);
 const defImg="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23f0f0f0' width='200' height='200'/%3E%3Ctext x='100' y='105' text-anchor='middle' fill='%23ccc' font-size='14'%3E????%3C/text%3E%3C/svg%3E";
 function getImg(p){return(p.images&&p.images.length)?p.images[0]:defImg;}
