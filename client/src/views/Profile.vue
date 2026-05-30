@@ -8,7 +8,7 @@
 <el-form-item label="手机号"><el-input v-model="editForm.phone"/></el-form-item>
 </el-form><template #footer><el-button @click="showEdit=false">取消</el-button><el-button type="primary" :loading="saving" @click="handleSave">保存</el-button></template></el-dialog>
 <div class="profile-menu"><div class="menu-item" @click="activeTab='products'"><el-icon><Goods/></el-icon><span>我的商品</span><el-icon><ArrowRight/></el-icon></div><div class="menu-item" @click="activeTab='favorites'"><el-icon><Star/></el-icon><span>我的收藏</span><el-icon><ArrowRight/></el-icon></div></div>
-<div class="tab-content"><div v-if="activeTab==='products'"><div v-if="myProducts.length>0" class="my-product-list"><div v-for="p in myProducts" :key="p.id" class="my-product-item" @click="$router.push('/product/'+p.id)"><img :src="getImg(p)" class="mp-thumb"/><div class="mp-info"><div class="mp-top"><div class="mp-title">{{p.title}}</div><el-tag :type="getStatusMeta(p.status).type" size="small">{{getStatusMeta(p.status).label}}</el-tag></div><div class="mp-price">&yen;{{p.price}}</div><div class="mp-actions"><el-button size="small" plain @click.stop="goEdit(p)">编辑</el-button><el-button v-if="p.status==='active'" size="small" type="success" plain @click.stop="handleMarkSold(p)">标记售出</el-button><el-button v-if="p.status==='active'" size="small" type="warning" plain @click.stop="handleTakeDown(p)">下架</el-button></div></div></div></div><el-empty v-else description="还没有发布商品"/></div><div v-else><el-empty description="收藏功能正在完善中..."/></div></div>
+<div class="tab-content"><div v-if="activeTab==='products'"><div v-if="myProducts.length>0" class="my-product-list"><div v-for="p in myProducts" :key="p.id" class="my-product-item" @click="$router.push('/product/'+p.id)"><img :src="getImg(p)" class="mp-thumb"/><div class="mp-info"><div class="mp-top"><div class="mp-title">{{p.title}}</div><el-tag :type="getStatusMeta(p.status).type" size="small">{{getStatusMeta(p.status).label}}</el-tag></div><div class="mp-price">&yen;{{p.price}}</div><div class="mp-actions"><el-button size="small" plain @click.stop="goEdit(p)">编辑</el-button><el-button v-if="p.status==='active'" size="small" type="success" plain @click.stop="handleMarkSold(p)">标记售出</el-button><el-button v-if="p.status==='active'" size="small" type="warning" plain @click.stop="handleTakeDown(p)">下架</el-button><el-button v-if="p.status==='inactive'" size="small" type="success" plain @click.stop="handleRelist(p)">上架</el-button></div></div></div></div><el-empty v-else description="还没有发布商品"/></div><div v-else><el-empty description="收藏功能正在完善中..."/></div></div>
 <div class="logout-section"><el-button type="danger" @click="handleLogout" style="width:100%">退出登录</el-button></div>
 </div></div>
 </template>
@@ -82,6 +82,15 @@ async function handleTakeDown(p) {
         await ElMessageBox.confirm(`确认将《${p.title}》下架？`, "操作确认", { type: "warning" });
         await updateProduct(p.id, { status: "inactive" });
         ElMessage.success("已下架");
+        await fetchMyProducts();
+    } catch {}
+}
+
+async function handleRelist(p) {
+    try {
+        await ElMessageBox.confirm(`确认将《${p.title}》重新上架？`, "操作确认", { type: "warning" });
+        await updateProduct(p.id, { status: "active" });
+        ElMessage.success("已上架");
         await fetchMyProducts();
     } catch {}
 }

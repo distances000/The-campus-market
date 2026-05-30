@@ -7,7 +7,7 @@
 </div>
 <div class="product-grid" v-if="products.length>0">
 <div v-for="p in products" :key="p.id" class="product-card" @click="$router.push('/product/'+p.id)">
-<div class="product-image"><img :src="getImg(p)" :alt="p.title" @error="onImgErr"/><span class="product-condition" v-if="p.condition">{{condMap[p.condition]||p.condition}}</span></div>
+<div class="product-image"><img :src="getImg(p)" :alt="p.title" @error="onImgErr"/><span class="product-condition" v-if="p.condition">{{condMap[p.condition]||p.condition}}</span><span class="product-status" :class="'status-'+getProductStatusMeta(p.status).type">{{getProductStatusMeta(p.status).label}}</span></div>
 <div class="product-info"><h3 class="product-title">{{p.title}}</h3><div class="product-meta"><span class="product-price">&yen;{{p.price}}</span><span class="product-original" v-if="p.original_price">&yen;{{p.original_price}}</span></div><div class="product-footer"><span class="product-seller">{{p.seller_name}}</span><span class="product-campus" v-if="p.campus">{{p.campus}}</span></div></div>
 </div></div>
 <el-empty v-else description="????"/>
@@ -15,7 +15,7 @@
 </div>
 </template>
 <script setup>
-import {ref,onMounted,watch} from "vue";import {useRoute} from "vue-router";import {getProducts} from "../api/products";
+import {ref,onMounted,watch} from "vue";import {useRoute} from "vue-router";import {getProducts} from "../api/products";import { getProductStatusMeta } from "../utils/product";
 const route=useRoute();
 const cats=[{label:"??",value:"all"},{label:"??",value:"digital"},{label:"??",value:"books"},{label:"??",value:"life"},{label:"??",value:"clothing"},{label:"??",value:"sports"},{label:"??",value:"beauty"},{label:"??",value:"other"}];
 const condMap={brand_new:"??",like_new:"????",used:"??",old:"??"};
@@ -44,6 +44,10 @@ watch(()=>route.query.keyword,()=>{page.value=1;products.value=[];loadProducts()
 .product-image{position:relative;aspect-ratio:1;overflow:hidden;background:var(--bg-tertiary);}
 .product-image img{width:100%;height:100%;object-fit:cover;}
 .product-condition{position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;}
+.product-status{position:absolute;top:6px;right:6px;font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.92);}
+.status-success{color:#16a34a;}
+.status-warning{color:#d97706;}
+.status-info{color:#4b5563;}
 .product-info{padding:10px;}
 .product-title{font-size:14px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px;}
 .product-meta{display:flex;align-items:baseline;gap:6px;margin-bottom:6px;}

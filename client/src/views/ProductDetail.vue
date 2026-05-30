@@ -24,8 +24,13 @@
     <el-button type="primary" size="large" @click="$router.push('/chat/'+product.seller_id)" v-if="canChat">聊一聊</el-button>
     <template v-if="isOwner">
         <el-button size="large" @click="handleEdit">编辑商品</el-button>
-        <el-button size="large" type="success" @click="handleSetStatus('sold')" v-if="product.status==='active'">标记售出</el-button>
-        <el-button size="large" type="warning" @click="handleSetStatus('inactive')" v-if="product.status==='active'">下架</el-button>
+        <template v-if="product.status==='active'">
+            <el-button size="large" type="success" @click="handleSetStatus('sold')">标记售出</el-button>
+            <el-button size="large" type="warning" @click="handleSetStatus('inactive')">下架</el-button>
+        </template>
+        <template v-else-if="product.status==='inactive'">
+            <el-button size="large" type="success" @click="handleSetStatus('active')">上架</el-button>
+        </template>
         <el-button size="large" @click="handleDelete" type="danger">删除</el-button>
     </template>
 </div>
@@ -77,12 +82,12 @@ function handleEdit() {
 }
 
 async function handleSetStatus(status) {
-    const confirmText = status === "sold" ? "确认将该商品标记为售出？" : "确认将该商品下架？";
+    const confirmText = status === "sold" ? "确认将该商品标记为售出？" : status === "inactive" ? "确认将该商品下架？" : "确认将该商品重新上架？";
     try {
         await ElMessageBox.confirm(confirmText, "操作确认", { type: "warning" });
         const r = await updateProduct(product.value.id, { status });
         product.value = r.data;
-        ElMessage.success(status === "sold" ? "已标记为售出" : "已下架");
+        ElMessage.success(status === "sold" ? "已标记为售出" : status === "inactive" ? "已下架" : "已上架");
     } catch {}
 }
 

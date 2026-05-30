@@ -2,10 +2,16 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const router = express.Router();
-const ALLOWED_PRODUCT_STATUSES = new Set(["active", "sold", "inactive"]);
 
 function normalizeStatus(status) {
     return typeof status === "string" ? status.trim() : status;
+}
+
+function canTransitionProductStatus(currentStatus, nextStatus) {
+    if (currentStatus === nextStatus) return false;
+    if (currentStatus === "active") return nextStatus === "sold" || nextStatus === "inactive";
+    if (currentStatus === "inactive") return nextStatus === "active";
+    return false;
 }
 
 router.post("/", authMiddleware, (req, res) => {
@@ -68,6 +74,8 @@ router.put("/:id", authMiddleware, (req, res) => {
     if (!db.prepare("SELECT id FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id))
         return res.json({ code: 403, message: "????" });
     const { title, description, price, original_price, category, condition, campus, images_json, status } = req.body;
+    const current = db.prepare("SELECT status FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id);
+    if (!current) return res.json({ code: 403, message: "????" });
     const fields=[], vals=[];
     if (title !== undefined) { fields.push("title=?"); vals.push(title); }
     if (description !== undefined) { fields.push("description=?"); vals.push(description); }
@@ -79,7 +87,7 @@ router.put("/:id", authMiddleware, (req, res) => {
     if (images_json !== undefined) { fields.push("images_json=?"); vals.push(images_json); }
     if (status !== undefined) {
         const nextStatus = normalizeStatus(status);
-        if (!ALLOWED_PRODUCT_STATUSES.has(nextStatus)) return res.json({ code: 400, message: "??????" });
+        if (!canTransitionProductStatus(current.status, nextStatus)) return res.json({ code: 400, message: "??????" });
         fields.push("status=?");
         vals.push(nextStatus);
     }
