@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# build outputs
+dist/
+build/
+.vite/
+client/.vite/
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env files
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# local runtime data
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+server/uploads/

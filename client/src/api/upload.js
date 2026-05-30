@@ -1,0 +1,3 @@
+import api from "./index";
+export const uploadImage = (f) => { const fd = new FormData(); fd.append("file", f); return api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } }); };
+export const uploadImages = (fs) => { const fd = new FormData(); fs.forEach(f=>fd.append("files",f)); return api.post("/upload/batch", fd, { headers: { "Content-Type": "multipart/form-data" } }); };
