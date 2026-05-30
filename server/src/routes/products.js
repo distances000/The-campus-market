@@ -2,6 +2,11 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const router = express.Router();
+const ALLOWED_PRODUCT_STATUSES = new Set(["active", "sold", "inactive"]);
+
+function normalizeStatus(status) {
+    return typeof status === "string" ? status.trim() : status;
+}
 
 router.post("/", authMiddleware, (req, res) => {
     const { title, description, price, original_price, category, condition, campus, images_json } = req.body;
@@ -72,7 +77,12 @@ router.put("/:id", authMiddleware, (req, res) => {
     if (condition !== undefined) { fields.push("condition=?"); vals.push(condition); }
     if (campus !== undefined) { fields.push("campus=?"); vals.push(campus); }
     if (images_json !== undefined) { fields.push("images_json=?"); vals.push(images_json); }
-    if (status !== undefined) { fields.push("status=?"); vals.push(status); }
+    if (status !== undefined) {
+        const nextStatus = normalizeStatus(status);
+        if (!ALLOWED_PRODUCT_STATUSES.has(nextStatus)) return res.json({ code: 400, message: "??????" });
+        fields.push("status=?");
+        vals.push(nextStatus);
+    }
     if (!fields.length) return res.json({ code: 400, message: "????????" });
     fields.push("updated_at=CURRENT_TIMESTAMP"); vals.push(req.params.id);
     db.prepare("UPDATE products SET "+fields.join(",")+" WHERE id=?").run(...vals);
