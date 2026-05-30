@@ -21,7 +21,7 @@
 
                 <div class="header-actions">
                     <el-button
-                        v-if="userStore.isLoggedIn"
+                        v-if="userStore.isLoggedIn && showPublish"
                         type="primary"
                         size="large"
                         @click="$router.push('/publish')"
@@ -81,6 +81,7 @@ const userStore = useUserStore();
 const searchKeyword = ref("");
 const unreadCount = ref(0);
 const showSearch = computed(() => ["/home", "/"].includes(route.path));
+const showPublish = computed(() => ["/home", "/"].includes(route.path));
 
 function doSearch() {
     const keyword = searchKeyword.value.trim();

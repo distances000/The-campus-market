@@ -2,4 +2,8 @@ import api from "./index";
 export const sendMessage = (rid,c) => api.post("/messages", { receiver_id: rid, content: c });
 export const getConversation = (uid,p) => api.get("/messages/conversation/" + uid, { params: p });
 export const getConversations = () => api.get("/messages/conversations");
+export const getFriends = () => api.get("/messages/friends");
+export const addFriend = (id) => api.post("/messages/friends/" + id);
+export const searchUsers = (keyword) => api.get("/messages/users/search", { params: { keyword } });
+export const getUserBrief = (id) => api.get("/messages/users/" + id);
 export const getUnreadCount = () => api.get("/messages/unread");

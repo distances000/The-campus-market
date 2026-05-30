@@ -17,11 +17,11 @@
     </div>
 </div>
 <el-alert v-if="product.status!=='active'" :title="statusMeta.label==='已售出'?'该商品已售出，当前仅保留详情记录。':'该商品已下架，当前仅保留详情记录。'" :type="statusMeta.type==='warning'?'warning':'info'" show-icon class="status-alert"/>
-<div class="detail-seller"><el-avatar :size="40">{{(product.seller_name||"")[0]}}</el-avatar><div class="seller-info"><div class="seller-name">{{product.seller_name}}</div><div class="seller-campus" v-if="product.campus">{{product.campus}}</div></div><el-button type="primary" @click="$router.push('/chat/'+product.seller_id)" v-if="canChat">聊一聊</el-button></div>
+<div class="detail-seller"><el-avatar :size="40">{{(product.seller_name||"")[0]}}</el-avatar><div class="seller-info"><div class="seller-name">{{product.seller_name}}</div><div class="seller-campus" v-if="product.campus">{{product.campus}}</div></div><el-button type="primary" @click="goChat" v-if="canChat">聊一聊</el-button></div>
 <div class="detail-section" v-if="product.description"><h3>商品详情</h3><p>{{product.description}}</p></div>
 <div class="detail-actions">
     <el-button :type="product.is_favorited?'warning':'default'" size="large" @click="handleFavorite" :disabled="!userStore.isLoggedIn"><el-icon><Star/></el-icon>{{product.is_favorited?'已收藏':'收藏'}}</el-button>
-    <el-button type="primary" size="large" @click="$router.push('/chat/'+product.seller_id)" v-if="canChat">聊一聊</el-button>
+    <el-button type="primary" size="large" @click="goChat" v-if="canChat">聊一聊</el-button>
     <template v-if="isOwner">
         <el-button size="large" @click="handleEdit">编辑商品</el-button>
         <template v-if="product.status==='active'">
@@ -79,6 +79,10 @@ async function handleFavorite() {
 
 function handleEdit() {
     router.push("/publish/" + product.value.id);
+}
+
+function goChat() {
+    router.push({ path: "/chat/" + product.value.seller_id, query: { name: product.value.seller_name || "" } });
 }
 
 async function handleSetStatus(status) {

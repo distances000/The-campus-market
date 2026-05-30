@@ -81,6 +81,15 @@ function initDatabase() {
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
+        CREATE TABLE IF NOT EXISTS friends (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            friend_id INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, friend_id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (friend_id) REFERENCES users(id)
+        );
         CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id);
         CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
         CREATE INDEX IF NOT EXISTS idx_products_campus ON products(campus);
@@ -95,6 +104,8 @@ function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
         CREATE INDEX IF NOT EXISTS idx_likes_post ON likes(post_id);
         CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+        CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
+        CREATE INDEX IF NOT EXISTS idx_friends_pair ON friends(user_id, friend_id);
     `);
     console.log("Database initialized.");
 }

@@ -4,18 +4,21 @@
 <div class="chat-messages" ref="msgC"><div v-for="msg in messages" :key="msg.id" class="msg-item" :class="msg.sender_id===userStore.user?.id?'self':'other'">
 <el-avatar :size="32" v-if="msg.sender_id!==userStore.user?.id">{{(msg.sender_name||"")[0]}}</el-avatar>
 <div class="msg-bubble"><div class="msg-text">{{msg.content}}</div><div class="msg-time">{{fmt(msg.created_at)}}</div></div>
-</div></div>
-<div class="chat-input"><el-input v-model="inputText" placeholder="????..." @keyup.enter="handleSend" size="large"><template #append><el-button type="primary" @click="handleSend" :disabled="!inputText.trim()" :loading="sending">??</el-button></template></el-input></div>
+</div><el-empty v-if="!messages.length" description="还没有消息，开始聊天吧" :image-size="64"/></div>
+<div class="chat-input"><el-input v-model="inputText" placeholder="输入消息..." @keyup.enter="handleSend" size="large"><template #append><el-button type="primary" @click="handleSend" :disabled="!inputText.trim()" :loading="sending">发送</el-button></template></el-input></div>
 </div></div>
 </template>
 <script setup>
-import {ref,onMounted,nextTick} from "vue";import {useRoute,useRouter} from "vue-router";import {useUserStore} from "../stores/user";import {getConversation,sendMessage} from "../api/messages";
+import {ref,onMounted,nextTick,watch} from "vue";import {useRoute,useRouter} from "vue-router";import {useUserStore} from "../stores/user";import {getConversation,sendMessage,getUserBrief} from "../api/messages";
 import { ArrowLeft } from "@element-plus/icons-vue";
-const route=useRoute(),userStore=useUserStore(),msgC=ref(null),messages=ref([]),inputText=ref(""),sending=ref(false),chatName=ref("??");
+const route=useRoute(),router=useRouter(),userStore=useUserStore(),msgC=ref(null),messages=ref([]),inputText=ref(""),sending=ref(false),chatName=ref("聊天");
 function fmt(t){return t?new Date(t).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}):"";}
-async function fetchMsgs(){try{const r=await getConversation(route.params.userId);messages.value=r.data.list;if(messages.value.length){const o=messages.value.find(m=>m.sender_id!==userStore.user?.id);chatName.value=o?.sender_name||o?.receiver_name||"??";}await nextTick();if(msgC.value)msgC.value.scrollTop=msgC.value.scrollHeight;}catch{}}
+async function fetchChatTarget(){try{const r=await getUserBrief(route.params.userId);chatName.value=r.data.nickname||r.data.username||route.query.name||"聊天";}catch{chatName.value=route.query.name||"聊天";}}
+async function fetchMsgs(){try{const r=await getConversation(route.params.userId);messages.value=r.data.list;if(messages.value.length){const o=messages.value.find(m=>m.sender_id!==userStore.user?.id);chatName.value=o?.sender_name||o?.receiver_name||chatName.value;}await nextTick();if(msgC.value)msgC.value.scrollTop=msgC.value.scrollHeight;}catch{}}
+async function loadChat(){await fetchChatTarget();await fetchMsgs();}
 async function handleSend(){if(!inputText.value.trim())return;sending.value=true;try{await sendMessage(route.params.userId,inputText.value);inputText.value="";await fetchMsgs();}catch{}finally{sending.value=false;}}
-onMounted(fetchMsgs);
+onMounted(loadChat);
+watch(()=>route.params.userId,loadChat);
 </script>
 <style scoped>
 .chat-page{height:calc(100vh - var(--header-height) - 56px);display:flex;flex-direction:column;margin-top:12px;}
