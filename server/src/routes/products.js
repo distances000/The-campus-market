@@ -14,6 +14,20 @@ function canTransitionProductStatus(currentStatus, nextStatus) {
     return false;
 }
 
+function getUserCredit(db, userId) {
+    const credit = db.prepare(`
+        SELECT
+            COUNT(*) AS review_count,
+            ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
+        FROM reviews
+        WHERE reviewee_id=?
+    `).get(userId);
+    return {
+        review_count: credit.review_count || 0,
+        rating_avg: Number(credit.rating_avg || 0)
+    };
+}
+
 router.post("/", authMiddleware, (req, res) => {
     const { title, description, price, original_price, category, condition, campus, images_json } = req.body;
     if (!title || !price) return res.json({ code: 400, message: "???????????" });
@@ -90,7 +104,41 @@ router.get("/:id", optionalAuth, (req, res) => {
     p.images = JSON.parse(p.images_json); delete p.images_json;
     let fav=false;
     if (req.user) fav = !!db.prepare("SELECT id FROM favorites WHERE user_id=? AND product_id=?").get(req.user.id, p.id);
-    res.json({ code: 200, data: { ...p, is_favorited: fav } });
+    const reviews = db.prepare(`
+        SELECT
+            r.*,
+            reviewer.nickname AS reviewer_name,
+            reviewer.avatar_url AS reviewer_avatar
+        FROM reviews r
+        JOIN users reviewer ON reviewer.id=r.reviewer_id
+        WHERE r.product_id=?
+        ORDER BY r.created_at DESC
+        LIMIT 20
+    `).all(p.id);
+    const currentOrder = req.user ? db.prepare(`
+        SELECT
+            id,
+            buyer_id,
+            seller_id,
+            status,
+            created_at,
+            completed_at
+        FROM orders
+        WHERE product_id=?
+          AND (buyer_id=? OR seller_id=?)
+        ORDER BY created_at DESC
+        LIMIT 1
+    `).get(p.id, req.user.id, req.user.id) : null;
+    res.json({
+        code: 200,
+        data: {
+            ...p,
+            is_favorited: fav,
+            seller_credit: getUserCredit(db, p.seller_id),
+            reviews,
+            current_order: currentOrder || null
+        }
+    });
 });
 
 router.put("/:id", authMiddleware, (req, res) => {
@@ -128,6 +176,8 @@ router.delete("/:id", authMiddleware, (req, res) => {
     const db = getDb();
     if (!db.prepare("SELECT id FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id))
         return res.json({ code: 403, message: "????" });
+    if (db.prepare("SELECT id FROM orders WHERE product_id=?").get(req.params.id))
+        return res.json({ code: 400, message: "该商品已有订单，不能直接删除" });
     db.prepare("DELETE FROM favorites WHERE product_id=?").run(req.params.id);
     db.prepare("DELETE FROM products WHERE id=?").run(req.params.id);
     res.json({ code: 200, message: "????" });

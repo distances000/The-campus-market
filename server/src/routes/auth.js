@@ -4,6 +4,23 @@ const { getDb } = require("../config/db");
 const { generateToken, authMiddleware } = require("../middleware/auth");
 const router = express.Router();
 
+function withCredit(db, user) {
+    const credit = db.prepare(`
+        SELECT
+            COUNT(*) AS review_count,
+            ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
+        FROM reviews
+        WHERE reviewee_id=?
+    `).get(user.id);
+    return {
+        ...user,
+        credit: {
+            review_count: credit.review_count || 0,
+            rating_avg: Number(credit.rating_avg || 0)
+        }
+    };
+}
+
 router.post("/register", (req, res) => {
     const { username, password, nickname } = req.body;
     if (!username || !password) return res.json({ code: 400, message: "??????????" });
@@ -15,7 +32,7 @@ router.post("/register", (req, res) => {
     const r = db.prepare("INSERT INTO users (username, password_hash, nickname) VALUES (?,?,?)")
         .run(username, hash, nickname || username);
     const user = db.prepare("SELECT id,username,nickname,avatar_url,campus FROM users WHERE id=?").get(r.lastInsertRowid);
-    res.json({ code: 200, message: "????", data: { user, token: generateToken(user) } });
+    res.json({ code: 200, message: "????", data: { user: withCredit(db, user), token: generateToken(user) } });
 });
 
 router.post("/login", (req, res) => {
@@ -26,7 +43,7 @@ router.post("/login", (req, res) => {
     if (!user || !bcrypt.compareSync(password, user.password_hash))
         return res.json({ code: 400, message: "????????" });
     const { password_hash, ...info } = user;
-    res.json({ code: 200, message: "????", data: { user: info, token: generateToken(info) } });
+    res.json({ code: 200, message: "????", data: { user: withCredit(db, info), token: generateToken(info) } });
 });
 
 router.get("/me", authMiddleware, (req, res) => {
@@ -34,7 +51,7 @@ router.get("/me", authMiddleware, (req, res) => {
     const user = db.prepare("SELECT id,username,nickname,avatar_url,campus,bio,phone,created_at FROM users WHERE id=?")
         .get(req.user.id);
     if (!user) return res.json({ code: 404, message: "?????" });
-    res.json({ code: 200, data: user });
+    res.json({ code: 200, data: withCredit(db, user) });
 });
 
 router.put("/me", authMiddleware, (req, res) => {
@@ -51,7 +68,7 @@ router.put("/me", authMiddleware, (req, res) => {
     db.prepare("UPDATE users SET " + fields.join(",") + " WHERE id=?").run(...vals);
     const user = db.prepare("SELECT id,username,nickname,avatar_url,campus,bio,phone,created_at FROM users WHERE id=?")
         .get(req.user.id);
-    res.json({ code: 200, message: "????", data: user });
+    res.json({ code: 200, message: "????", data: withCredit(db, user) });
 });
 
 module.exports = router;

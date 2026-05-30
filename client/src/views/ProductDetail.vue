@@ -1,5 +1,5 @@
 <template>
-<div class="detail-page"><div class="page-container" style="max-width:800px" v-if="product">
+<div class="detail-page"><div class="page-container" style="max-width:860px" v-if="product">
 <div class="detail-images" v-if="product.images&&product.images.length"><el-carousel height="400px" indicator-position="none"><el-carousel-item v-for="(img,i) in product.images" :key="i"><img :src="img" class="detail-main-image"/></el-carousel-item></el-carousel></div>
 <div class="detail-images detail-images-empty" v-else><div class="no-image"><el-icon :size="48"><Picture/></el-icon><span>暂无图片</span></div></div>
 <div class="detail-header">
@@ -17,11 +17,48 @@
     </div>
 </div>
 <el-alert v-if="product.status!=='active'" :title="statusMeta.label==='已售出'?'该商品已售出，当前仅保留详情记录。':'该商品已下架，当前仅保留详情记录。'" :type="statusMeta.type==='warning'?'warning':'info'" show-icon class="status-alert"/>
-<div class="detail-seller"><el-avatar :size="40">{{(product.seller_name||"")[0]}}</el-avatar><div class="seller-info"><div class="seller-name">{{product.seller_name}}</div><div class="seller-campus" v-if="product.campus">{{product.campus}}</div></div><el-button type="primary" @click="goChat" v-if="canChat">聊一聊</el-button></div>
+<div class="detail-seller">
+    <el-avatar :size="40">{{(product.seller_name||"")[0]}}</el-avatar>
+    <div class="seller-info">
+        <div class="seller-name">{{product.seller_name}}</div>
+        <div class="seller-campus" v-if="product.campus">{{product.campus}}</div>
+    </div>
+    <div class="seller-credit">
+        <div class="credit-score">{{ product.seller_credit?.rating_avg?.toFixed ? product.seller_credit.rating_avg.toFixed(1) : Number(product.seller_credit?.rating_avg || 0).toFixed(1) }}</div>
+        <div class="credit-text">信用分 · {{ product.seller_credit?.review_count || 0 }} 条评价</div>
+    </div>
+    <el-button type="primary" @click="goChat" v-if="canChat">聊一聊</el-button>
+</div>
 <div class="detail-section" v-if="product.description"><h3>商品详情</h3><p>{{product.description}}</p></div>
+<div class="detail-section" v-if="product.current_order">
+    <h3>当前订单</h3>
+    <div class="order-inline">
+        <el-tag :type="orderStatusMeta.type">{{ orderStatusMeta.label }}</el-tag>
+        <span>订单创建于 {{ product.current_order.created_at }}</span>
+        <span v-if="product.current_order.completed_at">完成于 {{ product.current_order.completed_at }}</span>
+    </div>
+</div>
+<div class="detail-section">
+    <h3>成交评价</h3>
+    <div class="review-summary">
+        <div class="review-score">{{ Number(product.seller_credit?.rating_avg || 0).toFixed(1) }}</div>
+        <div class="review-meta">累计 {{ product.seller_credit?.review_count || 0 }} 条评价</div>
+    </div>
+    <div class="review-list" v-if="product.reviews?.length">
+        <div v-for="review in product.reviews" :key="review.id" class="review-item">
+            <div class="review-head">
+                <div class="review-author">{{ review.reviewer_name }}</div>
+                <div class="review-rating">{{ "★".repeat(review.rating) }}<span class="review-time">{{ review.created_at }}</span></div>
+            </div>
+            <div class="review-content">{{ review.content || "用户未填写评价内容" }}</div>
+        </div>
+    </div>
+    <el-empty v-else description="暂时还没有成交评价"/>
+</div>
 <div class="detail-actions">
     <el-button :type="product.is_favorited?'warning':'default'" size="large" @click="handleFavorite" :disabled="!userStore.isLoggedIn"><el-icon><Star/></el-icon>{{product.is_favorited?'已收藏':'收藏'}}</el-button>
     <el-button type="primary" size="large" @click="goChat" v-if="canChat">聊一聊</el-button>
+    <el-button type="success" size="large" @click="handleCreateOrder" :loading="creatingOrder" v-if="canOrder">立即下单</el-button>
     <template v-if="isOwner">
         <el-button size="large" @click="handleEdit">编辑商品</el-button>
         <template v-if="product.status==='active'">
@@ -42,7 +79,9 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStore } from "../stores/user";
 import { getProduct, deleteProduct, toggleFavorite, updateProduct } from "../api/products";
+import { createOrder } from "../api/orders";
 import { PRODUCT_CATEGORY_MAP as catMap, PRODUCT_CONDITION_MAP as condMap, getProductStatusMeta } from "../utils/product";
+import { getOrderStatusMeta } from "../utils/order";
 import { Picture, Star } from "@element-plus/icons-vue";
 
 const route = useRoute();
@@ -50,9 +89,12 @@ const router = useRouter();
 const userStore = useUserStore();
 const product = ref(null);
 const loading = ref(true);
+const creatingOrder = ref(false);
 const isOwner = computed(() => userStore.user?.id === product.value?.seller_id);
-const canChat = computed(() => userStore.isLoggedIn && userStore.user?.id !== product.value?.seller_id && product.value?.status === "active");
+const canChat = computed(() => userStore.isLoggedIn && userStore.user?.id !== product.value?.seller_id && (product.value?.status === "active" || !!product.value?.current_order));
+const canOrder = computed(() => userStore.isLoggedIn && !isOwner.value && product.value?.status === "active" && (!product.value?.current_order || product.value.current_order.status === "cancelled"));
 const statusMeta = computed(() => getProductStatusMeta(product.value?.status));
+const orderStatusMeta = computed(() => getOrderStatusMeta(product.value?.current_order?.status));
 
 async function fetchProduct() {
     loading.value = true;
@@ -77,6 +119,22 @@ async function handleFavorite() {
     } catch {}
 }
 
+async function handleCreateOrder() {
+    if (!userStore.isLoggedIn) {
+        ElMessage.warning("请先登录");
+        return;
+    }
+    creatingOrder.value = true;
+    try {
+        await createOrder(product.value.id);
+        ElMessage.success("下单成功");
+        await fetchProduct();
+        router.push({ path: "/profile", query: { tab: "orders" } });
+    } catch {} finally {
+        creatingOrder.value = false;
+    }
+}
+
 function handleEdit() {
     router.push("/publish/" + product.value.id);
 }
@@ -90,8 +148,9 @@ async function handleSetStatus(status) {
     try {
         await ElMessageBox.confirm(confirmText, "操作确认", { type: "warning" });
         const r = await updateProduct(product.value.id, { status });
-        product.value = r.data;
+        product.value = { ...product.value, ...r.data };
         ElMessage.success(status === "sold" ? "已标记为售出" : status === "inactive" ? "已下架" : "已上架");
+        await fetchProduct();
     } catch {}
 }
 
@@ -119,8 +178,22 @@ onMounted(fetchProduct);
 .status-alert{margin-bottom:12px;}
 .detail-seller{background:var(--bg-primary);padding:16px 20px;border-radius:var(--radius);display:flex;align-items:center;gap:12px;margin-bottom:12px;}
 .seller-info{flex:1;}.seller-name{font-weight:500;}.seller-campus{font-size:12px;color:var(--text-tertiary);}
+.seller-credit{min-width:120px;text-align:right;}
+.credit-score{font-size:20px;font-weight:700;color:var(--primary);}
+.credit-text{font-size:12px;color:var(--text-tertiary);}
 .detail-section{background:var(--bg-primary);padding:20px;border-radius:var(--radius);margin-bottom:12px;}
 .detail-section h3{font-size:15px;font-weight:600;margin-bottom:10px;}
 .detail-section p{font-size:14px;line-height:1.7;color:var(--text-secondary);white-space:pre-wrap;}
+.order-inline{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-secondary);}
+.review-summary{display:flex;align-items:flex-end;gap:12px;margin-bottom:14px;}
+.review-score{font-size:30px;font-weight:700;color:var(--primary);}
+.review-meta{font-size:13px;color:var(--text-tertiary);}
+.review-list{display:flex;flex-direction:column;gap:12px;}
+.review-item{padding:12px;border:1px solid var(--border);border-radius:10px;}
+.review-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:6px;}
+.review-author{font-size:14px;font-weight:600;}
+.review-rating{font-size:13px;color:#f59e0b;display:flex;gap:8px;align-items:center;}
+.review-time{color:var(--text-tertiary);font-size:12px;}
+.review-content{font-size:14px;color:var(--text-secondary);line-height:1.6;}
 .detail-actions{background:var(--bg-primary);padding:16px 20px;border-radius:var(--radius);display:flex;gap:12px;position:sticky;bottom:64px;flex-wrap:wrap;}
 </style>
