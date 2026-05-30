@@ -80,7 +80,7 @@
 </div></div>
 </template>
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "../stores/user";
@@ -95,6 +95,7 @@ const searchKeyword = ref("");
 const searchResults = ref([]);
 const searchPerformed = ref(false);
 const searching = ref(false);
+let syncTimer = null;
 
 function fmt(t) {
     if (!t) return "";
@@ -153,30 +154,190 @@ function startChat(user) {
     router.push({ path: "/chat/" + user.id, query: { name: user.nickname || user.username || "" } });
 }
 
+async function syncMessagePage() {
+    if (!userStore.isLoggedIn) return;
+    if (document.visibilityState === "hidden") return;
+    await Promise.all([fetchConvs(), fetchFriends()]);
+}
+
+function startSyncPolling() {
+    stopSyncPolling();
+    syncMessagePage();
+    syncTimer = window.setInterval(syncMessagePage, 8000);
+}
+
+function stopSyncPolling() {
+    if (!syncTimer) return;
+    window.clearInterval(syncTimer);
+    syncTimer = null;
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState === "visible") syncMessagePage();
+}
+
 onMounted(() => {
-    fetchConvs();
-    fetchFriends();
+    startSyncPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+onUnmounted(() => {
+    stopSyncPolling();
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+});
+watch(() => userStore.isLoggedIn, (loggedIn) => {
+    if (loggedIn) startSyncPolling();
+    else stopSyncPolling();
 });
 </script>
 <style scoped>
-.page-header{margin-bottom:16px;}
-.page-title{font-size:20px;font-weight:600;margin-bottom:4px;}
-.page-subtitle{font-size:13px;color:var(--text-tertiary);}
-.search-card{background:var(--bg-primary);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;}
-.search-results{margin-bottom:16px;}
-.section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;}
-.tabs{display:flex;gap:8px;margin-bottom:12px;}
-.tab-btn{border:none;background:var(--bg-primary);padding:10px 16px;border-radius:999px;color:var(--text-secondary);cursor:pointer;transition:all .2s;}
-.tab-btn.active{background:var(--primary);color:#fff;}
-.list-card{background:var(--bg-primary);border-radius:var(--radius);overflow:hidden;}
-.list-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--bg-tertiary);}
-.list-item:last-child{border-bottom:none;}
-.list-item-clickable{cursor:pointer;}
-.user-meta{display:flex;align-items:center;gap:12px;min-width:0;flex:1;}
-.user-info{min-width:0;flex:1;}
-.user-name{display:flex;justify-content:space-between;gap:8px;font-size:15px;font-weight:500;align-items:center;}
-.item-time{font-size:12px;font-weight:400;color:var(--text-tertiary);}
-.user-sub{font-size:13px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px;}
-.user-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
-.conv-badge{flex-shrink:0;background:var(--danger);color:#fff;font-size:11px;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;}
+.messages-page {
+    padding-top: 8px;
+}
+
+.page-header {
+    margin-bottom: 18px;
+}
+
+.page-title {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.page-subtitle {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    line-height: 1.7;
+}
+
+.search-card {
+    background: rgba(255, 255, 255, 0.88);
+    border-radius: 28px;
+    padding: 16px;
+    margin-bottom: 18px;
+    border: 1px solid rgba(194, 199, 208, 0.22);
+    box-shadow: var(--shadow);
+}
+
+.search-results {
+    margin-bottom: 18px;
+}
+
+.section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.tab-btn {
+    border: none;
+    background: rgba(232, 238, 249, 0.9);
+    padding: 11px 18px;
+    border-radius: 999px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 700;
+}
+
+.tab-btn.active {
+    background: var(--chip-active);
+    color: var(--primary);
+    box-shadow: inset 0 0 0 1px rgba(65, 95, 145, 0.14);
+}
+
+.list-card {
+    background: rgba(255, 255, 255, 0.88);
+    border-radius: 28px;
+    overflow: hidden;
+    border: 1px solid rgba(194, 199, 208, 0.22);
+    box-shadow: var(--shadow);
+}
+
+.list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(223, 226, 235, 0.72);
+}
+
+.list-item:last-child {
+    border-bottom: none;
+}
+
+.list-item-clickable {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.list-item-clickable:hover {
+    background: rgba(240, 242, 248, 0.48);
+}
+
+.user-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    flex: 1;
+}
+
+.user-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.user-name {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    align-items: center;
+}
+
+.item-time {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+}
+
+.user-sub {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 4px;
+}
+
+.user-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.conv-badge {
+    flex-shrink: 0;
+    background: var(--badge-bg);
+    color: #fff;
+    font-size: 11px;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+}
 </style>

@@ -90,6 +90,36 @@ function initDatabase() {
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (friend_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            seller_id INTEGER NOT NULL,
+            price_snapshot REAL NOT NULL,
+            status TEXT DEFAULT "pending_completion",
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            cancelled_at DATETIME,
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (buyer_id) REFERENCES users(id),
+            FOREIGN KEY (seller_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            reviewer_id INTEGER NOT NULL,
+            reviewee_id INTEGER NOT NULL,
+            rating INTEGER NOT NULL,
+            content TEXT DEFAULT "",
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(order_id, reviewer_id),
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (reviewer_id) REFERENCES users(id),
+            FOREIGN KEY (reviewee_id) REFERENCES users(id)
+        );
         CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id);
         CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
         CREATE INDEX IF NOT EXISTS idx_products_campus ON products(campus);
@@ -106,6 +136,11 @@ function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
         CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
         CREATE INDEX IF NOT EXISTS idx_friends_pair ON friends(user_id, friend_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_product ON orders(product_id);
+        CREATE INDEX IF NOT EXISTS idx_reviews_reviewee ON reviews(reviewee_id);
+        CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
     `);
     console.log("Database initialized.");
 }
