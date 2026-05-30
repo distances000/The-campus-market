@@ -6,3 +6,4 @@ export const updateProduct = (id,d) => api.put("/products/" + id, d);
 export const deleteProduct = (id) => api.delete("/products/" + id);
 export const toggleFavorite = (id) => api.post("/products/" + id + "/favorite");
 export const getMyProducts = (p) => api.get("/products/my/list", { params: p });
+export const getMyFavorites = (p) => api.get("/products/favorites/list", { params: p });

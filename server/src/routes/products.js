@@ -57,6 +57,30 @@ router.get("/my/list", authMiddleware, (req, res) => {
     res.json({ code: 200, data: { list, total, page: pg, page_size: ps } });
 });
 
+router.get("/favorites/list", authMiddleware, (req, res) => {
+    const { status, page = 1, page_size = 20 } = req.query;
+    const db = getDb();
+    const conds = ["f.user_id=?"];
+    const params = [req.user.id];
+    if (status) { conds.push("p.status=?"); params.push(status); }
+    const pg = parseInt(page), ps = parseInt(page_size), offset = (pg - 1) * ps;
+    const total = db.prepare("SELECT COUNT(*) AS count FROM favorites f JOIN products p ON p.id=f.product_id WHERE " + conds.join(" AND ")).get(...params).count;
+    const list = db.prepare(`
+        SELECT
+            p.*,
+            u.nickname AS seller_name,
+            u.avatar_url AS seller_avatar,
+            f.created_at AS favorited_at
+        FROM favorites f
+        JOIN products p ON p.id=f.product_id
+        JOIN users u ON u.id=p.seller_id
+        WHERE ${conds.join(" AND ")}
+        ORDER BY f.created_at DESC
+        LIMIT ? OFFSET ?
+    `).all(...params, ps, offset).map(p => { p.images = JSON.parse(p.images_json); delete p.images_json; return p; });
+    res.json({ code: 200, data: { list, total, page: pg, page_size: ps, total_pages: Math.ceil(total / ps) } });
+});
+
 router.get("/:id", optionalAuth, (req, res) => {
     const db = getDb();
     const p = db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar,u.campus AS seller_campus FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
