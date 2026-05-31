@@ -1,6 +1,6 @@
-import { createRouter, createWebHistory } from "vue-router";
-import { useUserStore } from "../stores/user";
+﻿import { createRouter, createWebHistory } from "vue-router";
 import MainLayout from "../components/MainLayout.vue";
+import { useUserStore } from "../stores/user";
 
 const routes = [
     {
@@ -24,10 +24,14 @@ const routes = [
     { path: "/register", name: "Register", component: () => import("../views/Register.vue"), meta: { title: "注册" } }
 ];
 
-const r = createRouter({ history: createWebHistory(), routes });
+const router = createRouter({
+    history: createWebHistory(),
+    routes
+});
 
-r.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, from, next) => {
     const userStore = useUserStore();
+
     if (!userStore.authInitialized && userStore.token) {
         await userStore.ensureAuth();
     }
@@ -45,4 +49,4 @@ r.beforeEach(async (to, from, next) => {
     next();
 });
 
-export default r;
+export default router;
