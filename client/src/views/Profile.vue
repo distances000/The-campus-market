@@ -18,6 +18,27 @@
                 </div>
             </div>
 
+            <div class="profile-admin-actions">
+                <el-button
+                    v-if="userStore.user?.is_admin"
+                    size="small"
+                    type="primary"
+                    @click="goAdminReports"
+                >
+                    进入管理后台
+                </el-button>
+                <el-button
+                    v-else
+                    size="small"
+                    type="warning"
+                    plain
+                    :loading="bootstrappingAdmin"
+                    @click="handleBootstrapAdmin"
+                >
+                    初始化管理员
+                </el-button>
+            </div>
+
             <div class="profile-highlights">
                 <div class="highlight-card">
                     <span class="highlight-label">我的商品</span>
@@ -172,6 +193,7 @@ import { ElMessage, ElMessageBox } from "../utils/message";
 import { Goods, Star } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { resetPassword, updateMe } from "../api/auth";
+import { bootstrapAdmin } from "../api/reports";
 import { getMyFavorites, getMyProducts, toggleFavorite, updateProduct } from "../api/products";
 import { getProductStatusMeta } from "../utils/product";
 import { CAMPUS_OPTIONS } from "../utils/options";
@@ -185,6 +207,7 @@ const passwordSaving = ref(false);
 const activeTab = ref("products");
 const myProducts = ref([]);
 const favoriteProducts = ref([]);
+const bootstrappingAdmin = ref(false);
 const campusOptions = CAMPUS_OPTIONS;
 const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "" });
 const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -209,6 +232,10 @@ function resetPasswordFormState() {
     passwordForm.currentPassword = "";
     passwordForm.newPassword = "";
     passwordForm.confirmPassword = "";
+}
+
+function goAdminReports() {
+    router.push("/admin/reports");
 }
 
 async function handleSave() {
@@ -244,6 +271,27 @@ async function handleResetPassword() {
         resetPasswordFormState();
     } catch {} finally {
         passwordSaving.value = false;
+    }
+}
+
+async function handleBootstrapAdmin() {
+    try {
+        await ElMessageBox.confirm("仅在系统还没有管理员时可初始化当前账号为管理员。是否继续？", "管理员初始化", {
+            type: "warning"
+        });
+    } catch {
+        return;
+    }
+
+    bootstrappingAdmin.value = true;
+    try {
+        const response = await bootstrapAdmin();
+        userStore.setAuth(response.data.token, response.data.user);
+        ElMessage.success("管理员初始化成功");
+        router.push("/admin/reports");
+    } catch {
+    } finally {
+        bootstrappingAdmin.value = false;
     }
 }
 
@@ -381,6 +429,14 @@ onMounted(() => {
     flex-wrap: wrap;
     justify-content: flex-end;
     align-self: flex-start;
+}
+
+.profile-admin-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-top: 10px;
 }
 
 .profile-highlights {
@@ -568,6 +624,10 @@ onMounted(() => {
 
     .profile-actions {
         width: 100%;
+        justify-content: flex-start;
+    }
+
+    .profile-admin-actions {
         justify-content: flex-start;
     }
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node dev-server.mjs",
-    "build": "vite build",
+    "build": "vite build --configLoader runner",
     "preview": "vite preview"
   },
   "dependencies": {
