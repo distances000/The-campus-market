@@ -1,7 +1,19 @@
 const { getDb } = require("../config/db");
 
+function hasColumn(db, table, column) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+    return columns.some((item) => item.name === column);
+}
+
+function ensureColumn(db, table, column, definition) {
+    if (!hasColumn(db, table, column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+}
+
 function initDatabase() {
     const db = getDb();
+
     db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12,6 +24,7 @@ function initDatabase() {
             campus TEXT DEFAULT "",
             bio TEXT DEFAULT "",
             phone TEXT DEFAULT "",
+            is_admin INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -136,6 +149,32 @@ function initDatabase() {
             FOREIGN KEY (reviewer_id) REFERENCES users(id),
             FOREIGN KEY (reviewee_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reporter_id INTEGER NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            target_owner_id INTEGER,
+            snapshot_title TEXT DEFAULT "",
+            snapshot_excerpt TEXT DEFAULT "",
+            reason TEXT NOT NULL,
+            description TEXT DEFAULT "",
+            status TEXT DEFAULT "pending",
+            handled_action TEXT DEFAULT "",
+            resolution_note TEXT DEFAULT "",
+            handled_by INTEGER,
+            handled_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reporter_id) REFERENCES users(id),
+            FOREIGN KEY (target_owner_id) REFERENCES users(id),
+            FOREIGN KEY (handled_by) REFERENCES users(id)
+        );
+    `);
+
+    ensureColumn(db, "users", "is_admin", "INTEGER DEFAULT 0");
+
+    db.exec(`
         CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id);
         CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
         CREATE INDEX IF NOT EXISTS idx_products_campus ON products(campus);
@@ -161,9 +200,19 @@ function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_orders_product ON orders(product_id);
         CREATE INDEX IF NOT EXISTS idx_reviews_reviewee ON reviews(reviewee_id);
         CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
+        CREATE INDEX IF NOT EXISTS idx_users_admin ON users(is_admin);
+        CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+        CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at DESC);
     `);
+
     console.log("Database initialized.");
 }
 
-if (require.main === module) { initDatabase(); process.exit(0); }
+if (require.main === module) {
+    initDatabase();
+    process.exit(0);
+}
+
 module.exports = { initDatabase };
