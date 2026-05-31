@@ -25,8 +25,8 @@ function safeJsonParse(value, fallback) {
     }
 }
 
-function getUserCredit(db, userId) {
-    const result = db.prepare(`
+async function getUserCredit(db, userId) {
+    const result = await db.prepare(`
         SELECT
             COUNT(*) AS review_count,
             ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
@@ -40,8 +40,8 @@ function getUserCredit(db, userId) {
     };
 }
 
-function buildUserSummary(db, currentUserId, targetUserId) {
-    return db.prepare(`
+async function buildUserSummary(db, currentUserId, targetUserId) {
+    return await db.prepare(`
         SELECT
             u.id,
             u.username,
@@ -59,8 +59,8 @@ function buildUserSummary(db, currentUserId, targetUserId) {
     `).get(currentUserId, targetUserId);
 }
 
-function buildUserDetail(db, currentUserId, targetUserId) {
-    const user = db.prepare(`
+async function buildUserDetail(db, currentUserId, targetUserId) {
+    const user = await db.prepare(`
         SELECT
             u.id,
             u.username,
@@ -99,31 +99,31 @@ function buildUserDetail(db, currentUserId, targetUserId) {
 
     return {
         ...user,
-        credit: getUserCredit(db, targetUserId)
+        credit: await getUserCredit(db, targetUserId)
     };
 }
 
-function markConversationAsRead(db, currentUserId, peerUserId) {
-    const unread = db.prepare(`
+async function markConversationAsRead(db, currentUserId, peerUserId) {
+    const unread = await db.prepare(`
         SELECT MAX(id) AS last_read_message_id
         FROM messages
         WHERE receiver_id=? AND sender_id=? AND is_read=0
     `).get(currentUserId, peerUserId);
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
         UPDATE messages
         SET is_read=1
         WHERE receiver_id=? AND sender_id=? AND is_read=0
     `).run(currentUserId, peerUserId);
 
     if (result.changes > 0 && unread.last_read_message_id) {
-        emitConversationRead(db, {
+        await emitConversationRead(db, {
             readerId: currentUserId,
             peerId: peerUserId,
             lastReadMessageId: unread.last_read_message_id
         });
     } else if (result.changes > 0) {
-        pushUnreadSummary(db, currentUserId);
+        await pushUnreadSummary(db, currentUserId);
         pushConversationRefresh(currentUserId, { peer_id: Number(peerUserId) });
     }
 
@@ -133,8 +133,8 @@ function markConversationAsRead(db, currentUserId, peerUserId) {
     };
 }
 
-function shouldShowConversation(db, userId, peerId, lastTime) {
-    const hidden = db.prepare(`
+async function shouldShowConversation(db, userId, peerId, lastTime) {
+    const hidden = await db.prepare(`
         SELECT hidden_at
         FROM hidden_conversations
         WHERE user_id=? AND peer_id=?
@@ -147,7 +147,7 @@ function shouldShowConversation(db, userId, peerId, lastTime) {
     return new Date(lastTime).getTime() > new Date(hidden.hidden_at).getTime();
 }
 
-router.post("/", authMiddleware, (req, res) => {
+router.post("/", authMiddleware, async (req, res) => {
     const { receiver_id, content } = req.body;
     const receiverId = Number(receiver_id);
     const normalizedContent = typeof content === "string" ? content.trim() : "";
@@ -160,27 +160,27 @@ router.post("/", authMiddleware, (req, res) => {
     }
 
     const db = getDb();
-    if (!db.prepare("SELECT id FROM users WHERE id=?").get(receiverId)) {
+    if (!await db.prepare("SELECT id FROM users WHERE id=?").get(receiverId)) {
         return res.json({ code: 404, message: "用户不存在" });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO messages (sender_id, receiver_id, content)
         VALUES (?, ?, ?)
     `).run(req.user.id, receiverId, normalizedContent);
 
-    const message = emitMessageCreated(db, result.lastInsertRowid);
+    const message = await emitMessageCreated(db, result.lastInsertRowid);
     return res.json({ code: 200, message: "发送成功", data: message });
 });
 
-router.get("/conversation/:userId", authMiddleware, (req, res) => {
+router.get("/conversation/:userId", authMiddleware, async (req, res) => {
     const db = getDb();
     const peerUserId = Number(req.params.userId);
     const page = parsePositiveInt(req.query.page, 1);
     const pageSize = parsePositiveInt(req.query.page_size, 50);
     const offset = (page - 1) * pageSize;
 
-    const list = db.prepare(`
+    const list = await db.prepare(`
         SELECT
             m.*,
             sender.nickname AS sender_name,
@@ -196,27 +196,27 @@ router.get("/conversation/:userId", authMiddleware, (req, res) => {
         LIMIT ? OFFSET ?
     `).all(req.user.id, peerUserId, peerUserId, req.user.id, pageSize, offset);
 
-    markConversationAsRead(db, req.user.id, peerUserId);
+    await markConversationAsRead(db, req.user.id, peerUserId);
     return res.json({ code: 200, data: { list: list.reverse() } });
 });
 
-router.post("/conversation/:userId/read", authMiddleware, (req, res) => {
+router.post("/conversation/:userId/read", authMiddleware, async (req, res) => {
     const db = getDb();
     const peerUserId = Number(req.params.userId);
-    const result = markConversationAsRead(db, req.user.id, peerUserId);
+    const result = await markConversationAsRead(db, req.user.id, peerUserId);
     return res.json({
         code: 200,
         message: "已更新已读状态",
         data: {
-            ...getUnreadSummary(db, req.user.id),
+            ...await getUnreadSummary(db, req.user.id),
             last_read_message_id: result.last_read_message_id
         }
     });
 });
 
-router.get("/conversations", authMiddleware, (req, res) => {
+router.get("/conversations", authMiddleware, async (req, res) => {
     const db = getDb();
-    const data = db.prepare(`
+    const data = await db.prepare(`
         SELECT
             CASE WHEN m.sender_id=? THEN m.receiver_id ELSE m.sender_id END AS other_id,
             u.nickname AS other_name,
@@ -242,13 +242,19 @@ router.get("/conversations", authMiddleware, (req, res) => {
         WHERE m.sender_id=? OR m.receiver_id=?
         GROUP BY other_id
         ORDER BY last_time DESC
-    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id)
-        .filter((item) => shouldShowConversation(db, req.user.id, item.other_id, item.last_time));
+    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
 
-    return res.json({ code: 200, data });
+    const visible = [];
+    for (const item of data) {
+        if (await shouldShowConversation(db, req.user.id, item.other_id, item.last_time)) {
+            visible.push(item);
+        }
+    }
+
+    return res.json({ code: 200, data: visible });
 });
 
-router.delete("/conversations/:userId", authMiddleware, (req, res) => {
+router.delete("/conversations/:userId", authMiddleware, async (req, res) => {
     const db = getDb();
     const peerUserId = Number(req.params.userId);
 
@@ -256,7 +262,7 @@ router.delete("/conversations/:userId", authMiddleware, (req, res) => {
         return res.json({ code: 400, message: "删除最近会话请求无效" });
     }
 
-    const hasConversation = db.prepare(`
+    const hasConversation = await db.prepare(`
         SELECT id
         FROM messages
         WHERE (sender_id=? AND receiver_id=?)
@@ -268,9 +274,9 @@ router.delete("/conversations/:userId", authMiddleware, (req, res) => {
         return res.json({ code: 404, message: "该会话不存在" });
     }
 
-    const readResult = markConversationAsRead(db, req.user.id, peerUserId);
+    const readResult = await markConversationAsRead(db, req.user.id, peerUserId);
 
-    db.prepare(`
+    await db.prepare(`
         INSERT INTO hidden_conversations (user_id, peer_id, hidden_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id, peer_id)
@@ -278,7 +284,7 @@ router.delete("/conversations/:userId", authMiddleware, (req, res) => {
     `).run(req.user.id, peerUserId);
 
     pushConversationRefresh(req.user.id, { peer_id: peerUserId, type: "conversation_hidden" });
-    pushUnreadSummary(db, req.user.id);
+    await pushUnreadSummary(db, req.user.id);
 
     return res.json({
         code: 200,
@@ -287,9 +293,9 @@ router.delete("/conversations/:userId", authMiddleware, (req, res) => {
     });
 });
 
-router.get("/friends", authMiddleware, (req, res) => {
+router.get("/friends", authMiddleware, async (req, res) => {
     const db = getDb();
-    const data = db.prepare(`
+    const data = await db.prepare(`
         SELECT
             u.id,
             u.username,
@@ -319,13 +325,13 @@ router.get("/friends", authMiddleware, (req, res) => {
         FROM friends f
         JOIN users u ON u.id=f.friend_id
         WHERE f.user_id=?
-        ORDER BY COALESCE(last_time, f.created_at) DESC, u.nickname COLLATE NOCASE ASC
+        ORDER BY COALESCE(last_time, f.created_at) DESC, LOWER(u.nickname) ASC
     `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
 
     return res.json({ code: 200, data });
 });
 
-router.post("/friends/:friendId", authMiddleware, (req, res) => {
+router.post("/friends/:friendId", authMiddleware, async (req, res) => {
     const db = getDb();
     const friendId = Number(req.params.friendId);
 
@@ -333,23 +339,22 @@ router.post("/friends/:friendId", authMiddleware, (req, res) => {
         return res.json({ code: 400, message: "好友添加无效" });
     }
 
-    const target = db.prepare("SELECT id FROM users WHERE id=?").get(friendId);
+    const target = await db.prepare("SELECT id FROM users WHERE id=?").get(friendId);
     if (!target) {
         return res.json({ code: 404, message: "用户不存在" });
     }
 
-    const exists = db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
+    const exists = await db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
     if (exists) {
         return res.json({ code: 200, message: "已经是好友了" });
     }
 
-    const transaction = db.transaction(() => {
-        db.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(req.user.id, friendId);
-        db.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(friendId, req.user.id);
+    await db.transaction(async (tx) => {
+        await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(req.user.id, friendId);
+        await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(friendId, req.user.id);
     });
-    transaction();
 
-    createNotification(db, {
+    await createNotification(db, {
         userId: friendId,
         actorId: req.user.id,
         kind: "interaction",
@@ -366,11 +371,11 @@ router.post("/friends/:friendId", authMiddleware, (req, res) => {
     return res.json({
         code: 200,
         message: "添加好友成功",
-        data: buildUserSummary(db, req.user.id, friendId)
+        data: await buildUserSummary(db, req.user.id, friendId)
     });
 });
 
-router.delete("/friends/:friendId", authMiddleware, (req, res) => {
+router.delete("/friends/:friendId", authMiddleware, async (req, res) => {
     const db = getDb();
     const friendId = Number(req.params.friendId);
 
@@ -378,26 +383,25 @@ router.delete("/friends/:friendId", authMiddleware, (req, res) => {
         return res.json({ code: 400, message: "删除好友请求无效" });
     }
 
-    const exists = db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
+    const exists = await db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
     if (!exists) {
         return res.json({ code: 404, message: "该用户当前不是你的好友" });
     }
 
-    const transaction = db.transaction(() => {
-        db.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(req.user.id, friendId);
-        db.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(friendId, req.user.id);
+    await db.transaction(async (tx) => {
+        await tx.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(req.user.id, friendId);
+        await tx.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(friendId, req.user.id);
     });
-    transaction();
 
     pushConversationRefresh(req.user.id, { peer_id: friendId, type: "friend_removed" });
     pushConversationRefresh(friendId, { peer_id: req.user.id, type: "friend_removed" });
-    pushUnreadSummary(db, req.user.id);
-    pushUnreadSummary(db, friendId);
+    await pushUnreadSummary(db, req.user.id);
+    await pushUnreadSummary(db, friendId);
 
     return res.json({ code: 200, message: "已删除好友" });
 });
 
-router.get("/notifications", authMiddleware, (req, res) => {
+router.get("/notifications", authMiddleware, async (req, res) => {
     const db = getDb();
     const kind = typeof req.query.kind === "string" ? req.query.kind : "interaction";
     if (!["interaction", "system"].includes(kind)) {
@@ -407,18 +411,18 @@ router.get("/notifications", authMiddleware, (req, res) => {
     const page = parsePositiveInt(req.query.page, 1);
     const pageSize = parsePositiveInt(req.query.page_size, 20);
     const offset = (page - 1) * pageSize;
-    const total = db.prepare(`
+    const total = (await db.prepare(`
         SELECT COUNT(*) AS count
         FROM notifications
         WHERE user_id=? AND kind=?
-    `).get(req.user.id, kind).count;
-    const unread = db.prepare(`
+    `).get(req.user.id, kind)).count;
+    const unread = (await db.prepare(`
         SELECT COUNT(*) AS count
         FROM notifications
         WHERE user_id=? AND kind=? AND is_read=0
-    `).get(req.user.id, kind).count;
+    `).get(req.user.id, kind)).count;
 
-    const list = db.prepare(`
+    const list = (await db.prepare(`
         SELECT
             n.*,
             actor.nickname AS actor_name,
@@ -428,7 +432,7 @@ router.get("/notifications", authMiddleware, (req, res) => {
         WHERE n.user_id=? AND n.kind=?
         ORDER BY n.is_read ASC, n.created_at DESC
         LIMIT ? OFFSET ?
-    `).all(req.user.id, kind, pageSize, offset).map((item) => {
+    `).all(req.user.id, kind, pageSize, offset)).map((item) => {
         const next = { ...item, extra: safeJsonParse(item.extra_json, {}) };
         delete next.extra_json;
         return next;
@@ -446,23 +450,23 @@ router.get("/notifications", authMiddleware, (req, res) => {
     });
 });
 
-router.post("/notifications/read", authMiddleware, (req, res) => {
+router.post("/notifications/read", authMiddleware, async (req, res) => {
     const db = getDb();
     const { id, kind } = req.body || {};
 
     if (id) {
-        db.prepare("UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?").run(id, req.user.id);
+        await db.prepare("UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?").run(id, req.user.id);
     } else if (kind) {
-        db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=? AND kind=?").run(req.user.id, kind);
+        await db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=? AND kind=?").run(req.user.id, kind);
     } else {
-        db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=?").run(req.user.id);
+        await db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=?").run(req.user.id);
     }
 
-    pushUnreadSummary(db, req.user.id);
-    return res.json({ code: 200, message: "已更新通知状态", data: getUnreadSummary(db, req.user.id) });
+    await pushUnreadSummary(db, req.user.id);
+    return res.json({ code: 200, message: "已更新通知状态", data: await getUnreadSummary(db, req.user.id) });
 });
 
-router.get("/users/search", authMiddleware, (req, res) => {
+router.get("/users/search", authMiddleware, async (req, res) => {
     const db = getDb();
     const keyword = typeof req.query.keyword === "string" ? req.query.keyword.trim() : "";
     if (!keyword) {
@@ -470,7 +474,7 @@ router.get("/users/search", authMiddleware, (req, res) => {
     }
 
     const like = `%${keyword}%`;
-    const data = db.prepare(`
+    const data = await db.prepare(`
         SELECT
             u.id,
             u.username,
@@ -486,25 +490,25 @@ router.get("/users/search", authMiddleware, (req, res) => {
         FROM users u
         WHERE u.id != ?
           AND (u.username LIKE ? OR u.nickname LIKE ?)
-        ORDER BY is_friend DESC, u.nickname COLLATE NOCASE ASC, u.username COLLATE NOCASE ASC
+        ORDER BY is_friend DESC, LOWER(u.nickname) ASC, LOWER(u.username) ASC
         LIMIT 20
     `).all(req.user.id, req.user.id, like, like);
 
     return res.json({ code: 200, data });
 });
 
-router.get("/users/:id", authMiddleware, (req, res) => {
+router.get("/users/:id", authMiddleware, async (req, res) => {
     const db = getDb();
-    const user = buildUserDetail(db, req.user.id, Number(req.params.id));
+    const user = await buildUserDetail(db, req.user.id, Number(req.params.id));
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }
     return res.json({ code: 200, data: user });
 });
 
-router.get("/unread", authMiddleware, (req, res) => {
+router.get("/unread", authMiddleware, async (req, res) => {
     const db = getDb();
-    return res.json({ code: 200, data: getUnreadSummary(db, req.user.id) });
+    return res.json({ code: 200, data: await getUnreadSummary(db, req.user.id) });
 });
 
 module.exports = router;

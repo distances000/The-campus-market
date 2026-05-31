@@ -1,6 +1,6 @@
 const { emitNotificationCreated } = require("./realtime");
 
-function createNotification(db, {
+async function createNotification(db, {
     userId,
     actorId = null,
     kind = "system",
@@ -13,7 +13,7 @@ function createNotification(db, {
 }) {
     if (!db || !userId || !title) return null;
     if (kind === "interaction" && actorId && Number(actorId) === Number(userId)) return null;
-    const result = db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO notifications (
             user_id,
             actor_id,
@@ -36,7 +36,7 @@ function createNotification(db, {
         objectId,
         JSON.stringify(extra || {})
     );
-    emitNotificationCreated(db, result.lastInsertRowid);
+    await emitNotificationCreated(db, result.lastInsertRowid);
     return result.lastInsertRowid;
 }
 

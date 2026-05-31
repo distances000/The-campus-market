@@ -1,3 +1,4 @@
+require("express-async-errors");
 const http = require("http");
 const express = require("express");
 const cors = require("cors");
@@ -22,8 +23,19 @@ app.use("/api/admin", require("./routes/admin"));
 app.use("/api/upload", require("./routes/upload"));
 
 app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).json({ code: 500, message: "服务器内部错误" });
+});
 
-initDatabase();
-const server = http.createServer(app);
-attachRealtimeServer(server);
-server.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));
+async function bootstrap() {
+    await initDatabase();
+    const server = http.createServer(app);
+    attachRealtimeServer(server);
+    server.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));
+}
+
+bootstrap().catch((error) => {
+    console.error("Failed to bootstrap server:", error);
+    process.exit(1);
+});

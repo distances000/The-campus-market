@@ -7,9 +7,9 @@ const router = express.Router();
 const ALLOWED_TARGET_TYPES = ["product", "post"];
 const ALLOWED_REASONS = ["spam", "fraud", "illegal", "abuse", "misleading", "other"];
 
-function getTargetSnapshot(db, targetType, targetId) {
+async function getTargetSnapshot(db, targetType, targetId) {
     if (targetType === "product") {
-        const product = db.prepare(`
+        const product = await db.prepare(`
             SELECT id, seller_id AS owner_id, title, description, status
             FROM products
             WHERE id=?
@@ -27,7 +27,7 @@ function getTargetSnapshot(db, targetType, targetId) {
     }
 
     if (targetType === "post") {
-        const post = db.prepare(`
+        const post = await db.prepare(`
             SELECT id, author_id AS owner_id, content
             FROM posts
             WHERE id=?
@@ -47,7 +47,7 @@ function getTargetSnapshot(db, targetType, targetId) {
     return null;
 }
 
-router.post("/", authMiddleware, (req, res) => {
+router.post("/", authMiddleware, async (req, res) => {
     const { target_type, target_id, reason, description = "" } = req.body;
     const normalizedType = typeof target_type === "string" ? target_type.trim() : "";
     const normalizedReason = typeof reason === "string" ? reason.trim() : "";
@@ -68,7 +68,7 @@ router.post("/", authMiddleware, (req, res) => {
     }
 
     const db = getDb();
-    const snapshot = getTargetSnapshot(db, normalizedType, targetId);
+    const snapshot = await getTargetSnapshot(db, normalizedType, targetId);
     if (!snapshot) {
         return res.json({ code: 404, message: "举报对象不存在或已删除" });
     }
@@ -76,7 +76,7 @@ router.post("/", authMiddleware, (req, res) => {
         return res.json({ code: 400, message: "不能举报自己发布的内容" });
     }
 
-    const existed = db.prepare(`
+    const existed = await db.prepare(`
         SELECT id
         FROM reports
         WHERE reporter_id=?
@@ -89,7 +89,7 @@ router.post("/", authMiddleware, (req, res) => {
         return res.json({ code: 400, message: "你已经举报过该内容，等待管理员处理即可" });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO reports (
             reporter_id,
             target_type,
@@ -112,7 +112,7 @@ router.post("/", authMiddleware, (req, res) => {
         normalizedDescription
     );
 
-    const report = db.prepare(`
+    const report = await db.prepare(`
         SELECT
             r.*,
             u.nickname AS reporter_name
@@ -128,9 +128,9 @@ router.post("/", authMiddleware, (req, res) => {
     });
 });
 
-router.get("/my/list", authMiddleware, (req, res) => {
+router.get("/my/list", authMiddleware, async (req, res) => {
     const db = getDb();
-    const list = db.prepare(`
+    const list = await db.prepare(`
         SELECT
             id,
             target_type,

@@ -5,8 +5,8 @@ const { createNotification } = require("../utils/notifications");
 
 const router = express.Router();
 
-function getUserCredit(db, userId) {
-    const stats = db.prepare(`
+async function getUserCredit(db, userId) {
+    const stats = await db.prepare(`
         SELECT
             COUNT(*) AS review_count,
             ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
@@ -19,32 +19,30 @@ function getUserCredit(db, userId) {
     };
 }
 
-function getOrderReviewState(db, orderId) {
-    const reviews = db.prepare("SELECT reviewer_id FROM reviews WHERE order_id=?").all(orderId);
+async function getOrderReviewState(db, orderId) {
+    const reviews = await db.prepare("SELECT reviewer_id FROM reviews WHERE order_id=?").all(orderId);
     return reviews.map(item => item.reviewer_id);
 }
 
-router.post("/", authMiddleware, (req, res) => {
+router.post("/", authMiddleware, async (req, res) => {
     const { product_id } = req.body;
     const db = getDb();
-    const product = db.prepare("SELECT * FROM products WHERE id=?").get(product_id);
+    const product = await db.prepare("SELECT * FROM products WHERE id=?").get(product_id);
     if (!product) return res.json({ code: 404, message: "商品不存在" });
     if (product.seller_id === req.user.id) return res.json({ code: 400, message: "不能购买自己发布的商品" });
     if (product.status !== "active") return res.json({ code: 400, message: "该商品当前不可下单" });
-    const activeOrder = db.prepare("SELECT id FROM orders WHERE product_id=? AND status IN ('pending_completion','completed')").get(product_id);
+    const activeOrder = await db.prepare("SELECT id FROM orders WHERE product_id=? AND status IN ('pending_completion','completed')").get(product_id);
     if (activeOrder) return res.json({ code: 400, message: "该商品已有订单" });
 
-    const createOrder = db.transaction(() => {
-        const orderResult = db.prepare(`
+    const orderId = await db.transaction(async (tx) => {
+        const orderResult = await tx.prepare(`
             INSERT INTO orders (product_id,buyer_id,seller_id,price_snapshot,status)
             VALUES (?,?,?,?,?)
         `).run(product.id, req.user.id, product.seller_id, product.price, "pending_completion");
-        db.prepare("UPDATE products SET status='sold', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(product.id);
+        await tx.prepare("UPDATE products SET status='sold', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(product.id);
         return orderResult.lastInsertRowid;
     });
-
-    const orderId = createOrder();
-    const order = db.prepare(`
+    const order = await db.prepare(`
         SELECT
             o.*,
             p.title AS product_title,
@@ -60,7 +58,7 @@ router.post("/", authMiddleware, (req, res) => {
     order.images = JSON.parse(order.images_json || "[]");
     delete order.images_json;
 
-    createNotification(db, {
+    await createNotification(db, {
         userId: product.seller_id,
         actorId: req.user.id,
         kind: "system",
@@ -75,7 +73,7 @@ router.post("/", authMiddleware, (req, res) => {
     res.json({ code: 200, message: "下单成功", data: order });
 });
 
-router.get("/my/list", authMiddleware, (req, res) => {
+router.get("/my/list", authMiddleware, async (req, res) => {
     const { role = "all", status } = req.query;
     const db = getDb();
     const conds = [];
@@ -98,7 +96,7 @@ router.get("/my/list", authMiddleware, (req, res) => {
     }
 
     const where = "WHERE " + conds.join(" AND ");
-    const list = db.prepare(`
+    const rows = await db.prepare(`
         SELECT
             o.*,
             p.title AS product_title,
@@ -114,30 +112,32 @@ router.get("/my/list", authMiddleware, (req, res) => {
         JOIN users seller ON seller.id=o.seller_id
         ${where}
         ORDER BY o.created_at DESC
-    `).all(...params).map(order => {
+    `).all(...params);
+    const list = [];
+    for (const order of rows) {
         order.images = JSON.parse(order.images_json || "[]");
         delete order.images_json;
-        const reviewers = getOrderReviewState(db, order.id);
+        const reviewers = await getOrderReviewState(db, order.id);
         order.has_reviewed = reviewers.includes(req.user.id);
         order.can_review = order.status === "completed" && !order.has_reviewed;
         order.role = order.buyer_id === req.user.id ? "buyer" : "seller";
-        return order;
-    });
+        list.push(order);
+    }
 
     res.json({ code: 200, data: { list } });
 });
 
-router.post("/:id/complete", authMiddleware, (req, res) => {
+router.post("/:id/complete", authMiddleware, async (req, res) => {
     const db = getDb();
-    const order = db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id) return res.json({ code: 403, message: "只有买家可以确认完成" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可完成" });
 
-    db.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+    await db.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
 
-    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
-    createNotification(db, {
+    const product = await db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    await createNotification(db, {
         userId: order.seller_id,
         actorId: req.user.id,
         kind: "system",
@@ -152,22 +152,21 @@ router.post("/:id/complete", authMiddleware, (req, res) => {
     res.json({ code: 200, message: "订单已完成" });
 });
 
-router.post("/:id/cancel", authMiddleware, (req, res) => {
+router.post("/:id/cancel", authMiddleware, async (req, res) => {
     const db = getDb();
-    const order = db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权取消该订单" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可取消" });
 
-    const cancelOrder = db.transaction(() => {
-        db.prepare("UPDATE orders SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
-        db.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.product_id);
+    await db.transaction(async (tx) => {
+        await tx.prepare("UPDATE orders SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+        await tx.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.product_id);
     });
-    cancelOrder();
 
-    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    const product = await db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
     const targetUserId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;
-    createNotification(db, {
+    await createNotification(db, {
         userId: targetUserId,
         actorId: req.user.id,
         kind: "system",
@@ -182,26 +181,26 @@ router.post("/:id/cancel", authMiddleware, (req, res) => {
     res.json({ code: 200, message: "订单已取消" });
 });
 
-router.post("/:id/review", authMiddleware, (req, res) => {
+router.post("/:id/review", authMiddleware, async (req, res) => {
     const { rating, content = "" } = req.body;
     const score = Number(rating);
     if (!Number.isInteger(score) || score < 1 || score > 5) return res.json({ code: 400, message: "评分范围必须是 1-5" });
 
     const db = getDb();
-    const order = db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.status !== "completed") return res.json({ code: 400, message: "只有已完成订单才能评价" });
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权评价该订单" });
-    const exists = db.prepare("SELECT id FROM reviews WHERE order_id=? AND reviewer_id=?").get(order.id, req.user.id);
+    const exists = await db.prepare("SELECT id FROM reviews WHERE order_id=? AND reviewer_id=?").get(order.id, req.user.id);
     if (exists) return res.json({ code: 400, message: "你已经评价过该订单" });
 
     const revieweeId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;
-    const result = db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO reviews (order_id,product_id,reviewer_id,reviewee_id,rating,content)
         VALUES (?,?,?,?,?,?)
     `).run(order.id, order.product_id, req.user.id, revieweeId, score, content.trim());
 
-    const review = db.prepare(`
+    const review = await db.prepare(`
         SELECT
             r.*,
             reviewer.nickname AS reviewer_name,
@@ -212,8 +211,8 @@ router.post("/:id/review", authMiddleware, (req, res) => {
         WHERE r.id=?
     `).get(result.lastInsertRowid);
 
-    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
-    createNotification(db, {
+    const product = await db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    await createNotification(db, {
         userId: revieweeId,
         actorId: req.user.id,
         kind: "system",
@@ -228,9 +227,9 @@ router.post("/:id/review", authMiddleware, (req, res) => {
     res.json({ code: 200, message: "评价成功", data: review });
 });
 
-router.get("/reviews/received", authMiddleware, (req, res) => {
+router.get("/reviews/received", authMiddleware, async (req, res) => {
     const db = getDb();
-    const list = db.prepare(`
+    const list = await db.prepare(`
         SELECT
             r.*,
             reviewer.nickname AS reviewer_name,
@@ -243,7 +242,7 @@ router.get("/reviews/received", authMiddleware, (req, res) => {
         ORDER BY r.created_at DESC
     `).all(req.user.id);
 
-    res.json({ code: 200, data: { list, credit: getUserCredit(db, req.user.id) } });
+    res.json({ code: 200, data: { list, credit: await getUserCredit(db, req.user.id) } });
 });
 
 module.exports = router;

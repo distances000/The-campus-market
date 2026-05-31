@@ -265,18 +265,18 @@ function attachRealtimeServer(server) {
     });
 }
 
-function getUnreadSummary(db, userId) {
-    const chat = db.prepare(`
+async function getUnreadSummary(db, userId) {
+    const chat = await db.prepare(`
         SELECT COUNT(*) AS count
         FROM messages
         WHERE receiver_id=? AND is_read=0
     `).get(userId);
-    const interaction = db.prepare(`
+    const interaction = await db.prepare(`
         SELECT COUNT(*) AS count
         FROM notifications
         WHERE user_id=? AND kind='interaction' AND is_read=0
     `).get(userId);
-    const system = db.prepare(`
+    const system = await db.prepare(`
         SELECT COUNT(*) AS count
         FROM notifications
         WHERE user_id=? AND kind='system' AND is_read=0
@@ -290,12 +290,12 @@ function getUnreadSummary(db, userId) {
     };
 }
 
-function pushUnreadSummary(db, userId) {
-    sendEvent(userId, "unread_summary", getUnreadSummary(db, userId));
+async function pushUnreadSummary(db, userId) {
+    sendEvent(userId, "unread_summary", await getUnreadSummary(db, userId));
 }
 
-function getMessagePayload(db, messageId) {
-    return db.prepare(`
+async function getMessagePayload(db, messageId) {
+    return await db.prepare(`
         SELECT
             m.*,
             sender.nickname AS sender_name,
@@ -313,8 +313,8 @@ function pushConversationRefresh(userId, payload = {}) {
     sendEvent(userId, "conversation_refresh", payload);
 }
 
-function emitMessageCreated(db, messageId) {
-    const message = getMessagePayload(db, messageId);
+async function emitMessageCreated(db, messageId) {
+    const message = await getMessagePayload(db, messageId);
     if (!message) {
         return null;
     }
@@ -323,12 +323,12 @@ function emitMessageCreated(db, messageId) {
     sendEvent(message.receiver_id, "message.created", message);
     pushConversationRefresh(message.sender_id, { peer_id: message.receiver_id, message_id: message.id });
     pushConversationRefresh(message.receiver_id, { peer_id: message.sender_id, message_id: message.id });
-    pushUnreadSummary(db, message.sender_id);
-    pushUnreadSummary(db, message.receiver_id);
+    await pushUnreadSummary(db, message.sender_id);
+    await pushUnreadSummary(db, message.receiver_id);
     return message;
 }
 
-function emitConversationRead(db, { readerId, peerId, lastReadMessageId }) {
+async function emitConversationRead(db, { readerId, peerId, lastReadMessageId }) {
     const payload = {
         reader_id: Number(readerId),
         peer_id: Number(peerId),
@@ -340,12 +340,12 @@ function emitConversationRead(db, { readerId, peerId, lastReadMessageId }) {
     sendEvent(peerId, "message.read", payload);
     pushConversationRefresh(readerId, { peer_id: Number(peerId), last_read_message_id: Number(lastReadMessageId) });
     pushConversationRefresh(peerId, { peer_id: Number(readerId), last_read_message_id: Number(lastReadMessageId) });
-    pushUnreadSummary(db, readerId);
-    pushUnreadSummary(db, peerId);
+    await pushUnreadSummary(db, readerId);
+    await pushUnreadSummary(db, peerId);
 }
 
-function getNotificationPayload(db, notificationId) {
-    const notification = db.prepare(`
+async function getNotificationPayload(db, notificationId) {
+    const notification = await db.prepare(`
         SELECT
             n.*,
             actor.nickname AS actor_name,
@@ -364,14 +364,14 @@ function getNotificationPayload(db, notificationId) {
     return notification;
 }
 
-function emitNotificationCreated(db, notificationId) {
-    const notification = getNotificationPayload(db, notificationId);
+async function emitNotificationCreated(db, notificationId) {
+    const notification = await getNotificationPayload(db, notificationId);
     if (!notification) {
         return null;
     }
 
     sendEvent(notification.user_id, "notification.created", notification);
-    pushUnreadSummary(db, notification.user_id);
+    await pushUnreadSummary(db, notification.user_id);
     return notification;
 }
 

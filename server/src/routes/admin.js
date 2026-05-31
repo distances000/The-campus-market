@@ -29,7 +29,7 @@ function normalizePagination(query) {
     };
 }
 
-function applyModerationAction(db, report, actionType) {
+async function applyModerationAction(db, report, actionType) {
     if (actionType === "none") {
         return;
     }
@@ -38,11 +38,11 @@ function applyModerationAction(db, report, actionType) {
         if (report.target_type !== "product") {
             throw new Error("只有商品举报才能执行下架操作");
         }
-        const product = db.prepare("SELECT id FROM products WHERE id=?").get(report.target_id);
+        const product = await db.prepare("SELECT id FROM products WHERE id=?").get(report.target_id);
         if (!product) {
             throw new Error("该商品已不存在，无法重复下架");
         }
-        db.prepare("UPDATE products SET status='inactive', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(report.target_id);
+        await db.prepare("UPDATE products SET status='inactive', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(report.target_id);
         return;
     }
 
@@ -50,25 +50,25 @@ function applyModerationAction(db, report, actionType) {
         if (report.target_type !== "post") {
             throw new Error("只有帖子举报才能执行删除操作");
         }
-        const post = db.prepare("SELECT id FROM posts WHERE id=?").get(report.target_id);
+        const post = await db.prepare("SELECT id FROM posts WHERE id=?").get(report.target_id);
         if (!post) {
             throw new Error("该帖子已不存在，无法重复删除");
         }
-        db.prepare("DELETE FROM likes WHERE post_id=?").run(report.target_id);
-        db.prepare("DELETE FROM comments WHERE post_id=?").run(report.target_id);
-        db.prepare("DELETE FROM posts WHERE id=?").run(report.target_id);
+        await db.prepare("DELETE FROM likes WHERE post_id=?").run(report.target_id);
+        await db.prepare("DELETE FROM comments WHERE post_id=?").run(report.target_id);
+        await db.prepare("DELETE FROM posts WHERE id=?").run(report.target_id);
     }
 }
 
-router.post("/bootstrap", authMiddleware, (req, res) => {
+router.post("/bootstrap", authMiddleware, async (req, res) => {
     const db = getDb();
-    const adminCount = db.prepare("SELECT COUNT(*) AS count FROM users WHERE is_admin=1").get().count;
+    const adminCount = (await db.prepare("SELECT COUNT(*) AS count FROM users WHERE is_admin=1").get()).count;
     if (adminCount > 0) {
         return res.json({ code: 403, message: "管理员已经存在，不能重复初始化" });
     }
 
-    db.prepare("UPDATE users SET is_admin=1, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(req.user.id);
-    const user = db.prepare(`
+    await db.prepare("UPDATE users SET is_admin=1, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(req.user.id);
+    const user = await db.prepare(`
         SELECT id, username, nickname, avatar_url, campus, bio, phone, is_admin, created_at
         FROM users
         WHERE id=?
@@ -86,7 +86,7 @@ router.post("/bootstrap", authMiddleware, (req, res) => {
 
 router.use(authMiddleware, adminMiddleware);
 
-router.get("/reports", (req, res) => {
+router.get("/reports", async (req, res) => {
     const db = getDb();
     const { status, target_type, keyword } = req.query;
     const { page, pageSize, offset } = normalizePagination(req.query);
@@ -107,8 +107,8 @@ router.get("/reports", (req, res) => {
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const total = db.prepare(`SELECT COUNT(*) AS count ${getReportBaseSql(whereClause)}`).get(...params).count;
-    const list = db.prepare(`
+    const total = (await db.prepare(`SELECT COUNT(*) AS count ${getReportBaseSql(whereClause)}`).get(...params)).count;
+    const list = await db.prepare(`
         SELECT
             r.*,
             reporter.nickname AS reporter_name,
@@ -137,9 +137,9 @@ router.get("/reports", (req, res) => {
     });
 });
 
-router.get("/reports/:id", (req, res) => {
+router.get("/reports/:id", async (req, res) => {
     const db = getDb();
-    const report = db.prepare(`
+    const report = await db.prepare(`
         SELECT
             r.*,
             reporter.nickname AS reporter_name,
@@ -158,7 +158,7 @@ router.get("/reports/:id", (req, res) => {
     return res.json({ code: 200, data: report });
 });
 
-router.patch("/reports/:id", (req, res) => {
+router.patch("/reports/:id", async (req, res) => {
     const { status, resolution_note = "", handled_action = "none" } = req.body;
     const normalizedStatus = typeof status === "string" ? status.trim() : "";
     const normalizedAction = typeof handled_action === "string" ? handled_action.trim() : "none";
@@ -181,15 +181,15 @@ router.patch("/reports/:id", (req, res) => {
     }
 
     const db = getDb();
-    const report = db.prepare("SELECT * FROM reports WHERE id=?").get(req.params.id);
+    const report = await db.prepare("SELECT * FROM reports WHERE id=?").get(req.params.id);
     if (!report) {
         return res.json({ code: 404, message: "举报记录不存在" });
     }
 
     try {
-        const tx = db.transaction(() => {
-            applyModerationAction(db, report, normalizedAction);
-            db.prepare(`
+        await db.transaction(async (tx) => {
+            await applyModerationAction(tx, report, normalizedAction);
+            await tx.prepare(`
                 UPDATE reports
                 SET
                     status=?,
@@ -201,13 +201,12 @@ router.patch("/reports/:id", (req, res) => {
                 WHERE id=?
             `).run(normalizedStatus, normalizedAction, resolutionNote, req.user.id, report.id);
         });
-        tx();
     } catch (error) {
         return res.json({ code: 400, message: error.message || "举报处理失败" });
     }
 
     if (normalizedStatus === "resolved" || normalizedStatus === "rejected") {
-        createNotification(db, {
+        await createNotification(db, {
             userId: report.reporter_id,
             actorId: req.user.id,
             kind: "system",
@@ -219,7 +218,7 @@ router.patch("/reports/:id", (req, res) => {
         });
     }
 
-    const updated = db.prepare(`
+    const updated = await db.prepare(`
         SELECT
             r.*,
             reporter.nickname AS reporter_name,

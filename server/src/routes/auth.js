@@ -5,8 +5,8 @@ const { generateToken, authMiddleware } = require("../middleware/auth");
 
 const router = express.Router();
 
-function withCredit(db, user) {
-    const credit = db.prepare(`
+async function withCredit(db, user) {
+    const credit = await db.prepare(`
         SELECT
             COUNT(*) AS review_count,
             ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
@@ -28,7 +28,7 @@ function getPublicUserFields() {
     return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, created_at";
 }
 
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
     const { username, password, nickname } = req.body;
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
@@ -38,35 +38,35 @@ router.post("/register", (req, res) => {
     }
 
     const db = getDb();
-    if (db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
+    if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
         return res.json({ code: 400, message: "用户名已存在" });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO users (username, password_hash, nickname)
         VALUES (?, ?, ?)
     `).run(username, passwordHash, nickname || username);
 
-    const user = db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(result.lastInsertRowid);
+    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(result.lastInsertRowid);
     return res.json({
         code: 200,
         message: "注册成功",
         data: {
-            user: withCredit(db, user),
+            user: await withCredit(db, user),
             token: generateToken(user)
         }
     });
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
     }
 
     const db = getDb();
-    const user = db.prepare("SELECT * FROM users WHERE username=?").get(username);
+    const user = await db.prepare("SELECT * FROM users WHERE username=?").get(username);
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
         return res.json({ code: 400, message: "用户名或密码错误" });
     }
@@ -76,23 +76,23 @@ router.post("/login", (req, res) => {
         code: 200,
         message: "登录成功",
         data: {
-            user: withCredit(db, info),
+            user: await withCredit(db, info),
             token: generateToken(info)
         }
     });
 });
 
-router.get("/me", authMiddleware, (req, res) => {
+router.get("/me", authMiddleware, async (req, res) => {
     const db = getDb();
-    const user = db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
+    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }
 
-    return res.json({ code: 200, data: withCredit(db, user) });
+    return res.json({ code: 200, data: await withCredit(db, user) });
 });
 
-router.put("/me", authMiddleware, (req, res) => {
+router.put("/me", authMiddleware, async (req, res) => {
     const { nickname, avatar_url, campus, bio, phone } = req.body;
     const db = getDb();
     const fields = [];
@@ -126,12 +126,12 @@ router.put("/me", authMiddleware, (req, res) => {
     fields.push("updated_at=CURRENT_TIMESTAMP");
     values.push(req.user.id);
 
-    db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id=?`).run(...values);
-    const user = db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
-    return res.json({ code: 200, message: "资料已更新", data: withCredit(db, user) });
+    await db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id=?`).run(...values);
+    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
+    return res.json({ code: 200, message: "资料已更新", data: await withCredit(db, user) });
 });
 
-router.post("/reset-password", authMiddleware, (req, res) => {
+router.post("/reset-password", authMiddleware, async (req, res) => {
     const { current_password, new_password } = req.body;
     if (!current_password || !new_password) {
         return res.json({ code: 400, message: "请填写完整的密码信息" });
@@ -141,7 +141,7 @@ router.post("/reset-password", authMiddleware, (req, res) => {
     }
 
     const db = getDb();
-    const user = db.prepare("SELECT id, password_hash FROM users WHERE id=?").get(req.user.id);
+    const user = await db.prepare("SELECT id, password_hash FROM users WHERE id=?").get(req.user.id);
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }
@@ -153,7 +153,7 @@ router.post("/reset-password", authMiddleware, (req, res) => {
     }
 
     const nextHash = bcrypt.hashSync(new_password, 10);
-    db.prepare("UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(nextHash, req.user.id);
+    await db.prepare("UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(nextHash, req.user.id);
     return res.json({ code: 200, message: "密码修改成功" });
 });
 
