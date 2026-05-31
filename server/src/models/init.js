@@ -119,6 +119,15 @@ function initDatabase() {
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (friend_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS hidden_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            peer_id INTEGER NOT NULL,
+            hidden_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, peer_id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (peer_id) REFERENCES users(id)
+        );
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id INTEGER NOT NULL,
@@ -195,6 +204,8 @@ function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
         CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
         CREATE INDEX IF NOT EXISTS idx_friends_pair ON friends(user_id, friend_id);
+        CREATE INDEX IF NOT EXISTS idx_hidden_conversations_user ON hidden_conversations(user_id);
+        CREATE INDEX IF NOT EXISTS idx_hidden_conversations_pair ON hidden_conversations(user_id, peer_id);
         CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
         CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id);
         CREATE INDEX IF NOT EXISTS idx_orders_product ON orders(product_id);

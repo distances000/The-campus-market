@@ -1,4 +1,4 @@
-<template>
+﻿<template>
     <div class="main-layout">
         <header class="top-header">
             <div class="header-inner">
@@ -44,23 +44,19 @@
 
         <nav class="bottom-nav">
             <router-link to="/home" class="nav-item" :class="{ active: $route.path === '/home' }">
-                <el-icon><Shop /></el-icon>
                 <span>首页</span>
             </router-link>
 
             <router-link to="/school-circle" class="nav-item" :class="{ active: $route.path === '/school-circle' }">
-                <el-icon><ChatDotRound /></el-icon>
                 <span>校园圈</span>
             </router-link>
 
             <router-link to="/messages" class="nav-item" :class="{ active: $route.path === '/messages' }">
-                <el-icon><Message /></el-icon>
                 <span>消息</span>
                 <span v-if="unreadCount > 0" class="badge">{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
             </router-link>
 
             <router-link to="/profile" class="nav-item" :class="{ active: $route.path === '/profile' }">
-                <el-icon><User /></el-icon>
                 <span>我的</span>
             </router-link>
         </nav>
@@ -70,7 +66,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ChatDotRound, Message, Plus, Search, Shop, User } from "./element-icons";
+import { Plus, Search } from "./element-icons";
 import { useUserStore } from "../stores/user";
 import { getUnreadCount } from "../api/messages";
 import { subscribeMessageStream } from "../utils/message-stream";
@@ -293,9 +289,6 @@ watch(() => userStore.token, () => {
     background: rgba(214, 227, 255, 0.54);
 }
 
-.nav-item .el-icon {
-    font-size: 22px;
-}
 
 .badge {
     position: absolute;
@@ -336,3 +329,4 @@ watch(() => userStore.token, () => {
     }
 }
 </style>
+

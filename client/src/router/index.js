@@ -11,6 +11,7 @@ const routes = [
         { path: "publish/:id?", name: "Publish", component: () => import("../views/Publish.vue"), meta: { title: "????", requiresAuth: true } },
         { path: "product/:id", name: "ProductDetail", component: () => import("../views/ProductDetail.vue"), meta: { title: "????" } },
         { path: "post/:id", name: "PostDetail", component: () => import("../views/PostDetail.vue"), meta: { title: "????" } },
+        { path: "user/:id", name: "UserDetail", component: () => import("../views/UserDetail.vue"), meta: { title: "用户资料", requiresAuth: true } },
         { path: "chat/:userId", name: "Chat", component: () => import("../views/Chat.vue"), meta: { title: "??", requiresAuth: true } },
     ]},
     { path: "/login", name: "Login", component: () => import("../views/Login.vue"), meta: { title: "??" } },

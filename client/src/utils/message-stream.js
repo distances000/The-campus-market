@@ -1,13 +1,12 @@
 let currentToken = "";
-let eventSource = null;
-const listeners = new Set();
+let socket = null;
+let reconnectTimer = null;
+let listeners = new Set();
+let manuallyClosed = false;
 
-function parsePayload(event) {
-    try {
-        return JSON.parse(event.data);
-    } catch {
-        return null;
-    }
+function buildWebSocketUrl(token) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
 }
 
 function dispatch(type, payload) {
@@ -19,32 +18,100 @@ function dispatch(type, payload) {
     }
 }
 
-function bindEventSource(source) {
-    source.addEventListener("ready", (event) => {
-        dispatch("onReady", parsePayload(event));
-    });
-    source.addEventListener("message", (event) => {
-        dispatch("onMessage", parsePayload(event));
-    });
-    source.addEventListener("notification", (event) => {
-        dispatch("onNotification", parsePayload(event));
-    });
-    source.addEventListener("unread_summary", (event) => {
-        dispatch("onUnreadSummary", parsePayload(event));
-    });
-    source.addEventListener("conversation_refresh", (event) => {
-        dispatch("onConversationRefresh", parsePayload(event));
-    });
-    source.onerror = () => {
-        dispatch("onError");
-    };
+function clearReconnectTimer() {
+    if (!reconnectTimer) {
+        return;
+    }
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
 }
 
-function createEventSource(token) {
-    const url = `/api/messages/stream?token=${encodeURIComponent(token)}`;
-    const source = new EventSource(url);
-    bindEventSource(source);
-    return source;
+function scheduleReconnect() {
+    if (manuallyClosed || !currentToken || reconnectTimer) {
+        return;
+    }
+    reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+    }, 1500);
+}
+
+function handleSocketMessage(event) {
+    let packet = null;
+    try {
+        packet = JSON.parse(event.data);
+    } catch {
+        return;
+    }
+    if (!packet?.type) {
+        return;
+    }
+
+    switch (packet.type) {
+        case "ready":
+            dispatch("onReady", packet.payload);
+            break;
+        case "message.created":
+            dispatch("onMessageCreated", packet.payload);
+            break;
+        case "message.read":
+            dispatch("onMessageRead", packet.payload);
+            break;
+        case "notification.created":
+            dispatch("onNotificationCreated", packet.payload);
+            break;
+        case "unread_summary":
+            dispatch("onUnreadSummary", packet.payload);
+            break;
+        case "conversation_refresh":
+            dispatch("onConversationRefresh", packet.payload);
+            break;
+        case "pong":
+            dispatch("onPong", packet.payload);
+            break;
+        default:
+            dispatch("onUnknown", packet);
+            break;
+    }
+}
+
+function cleanupSocket() {
+    if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        socket = null;
+    }
+}
+
+function connect() {
+    if (!currentToken) {
+        return null;
+    }
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return socket;
+    }
+
+    manuallyClosed = false;
+    const nextSocket = new WebSocket(buildWebSocketUrl(currentToken));
+    socket = nextSocket;
+
+    nextSocket.onopen = () => {
+        clearReconnectTimer();
+        dispatch("onOpen");
+    };
+    nextSocket.onmessage = handleSocketMessage;
+    nextSocket.onerror = () => {
+        dispatch("onError");
+    };
+    nextSocket.onclose = () => {
+        cleanupSocket();
+        dispatch("onClose");
+        scheduleReconnect();
+    };
+
+    return nextSocket;
 }
 
 export function ensureMessageStream(token) {
@@ -52,21 +119,19 @@ export function ensureMessageStream(token) {
         closeMessageStream();
         return null;
     }
-    if (eventSource && currentToken === token) {
-        return eventSource;
+    if (currentToken !== token) {
+        closeMessageStream();
+        currentToken = token;
     }
-    closeMessageStream();
-    currentToken = token;
-    eventSource = createEventSource(token);
-    return eventSource;
+    return connect();
 }
 
 export function subscribeMessageStream(token, handlers = {}) {
     if (!token) {
         return () => {};
     }
-    ensureMessageStream(token);
     listeners.add(handlers);
+    ensureMessageStream(token);
 
     return () => {
         listeners.delete(handlers);
@@ -76,10 +141,20 @@ export function subscribeMessageStream(token, handlers = {}) {
     };
 }
 
-export function closeMessageStream() {
-    if (eventSource) {
-        eventSource.close();
-        eventSource = null;
+export function sendStreamMessage(packet) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
     }
+    socket.send(JSON.stringify(packet));
+    return true;
+}
+
+export function closeMessageStream() {
+    manuallyClosed = true;
+    clearReconnectTimer();
     currentToken = "";
+    if (socket) {
+        socket.close();
+        cleanupSocket();
+    }
 }

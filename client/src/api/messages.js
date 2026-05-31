@@ -3,10 +3,13 @@ export const sendMessage = (rid,c) => api.post("/messages", { receiver_id: rid, 
 export const getConversation = (uid,p) => api.get("/messages/conversation/" + uid, { params: p });
 export const markConversationRead = (uid) => api.post("/messages/conversation/" + uid + "/read");
 export const getConversations = () => api.get("/messages/conversations");
+export const removeConversation = (uid) => api.delete("/messages/conversations/" + uid);
 export const getFriends = () => api.get("/messages/friends");
 export const getNotifications = (kind, params) => api.get("/messages/notifications", { params: { kind, ...params } });
 export const readNotifications = (payload) => api.post("/messages/notifications/read", payload || {});
 export const addFriend = (id) => api.post("/messages/friends/" + id);
+export const removeFriend = (id) => api.delete("/messages/friends/" + id);
 export const searchUsers = (keyword) => api.get("/messages/users/search", { params: { keyword } });
-export const getUserBrief = (id) => api.get("/messages/users/" + id);
+export const getUserProfile = (id) => api.get("/messages/users/" + id);
+export const getUserBrief = getUserProfile;
 export const getUnreadCount = () => api.get("/messages/unread");

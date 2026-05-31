@@ -1,17 +1,44 @@
 const express = require("express");
 const { getDb } = require("../config/db");
-const { authMiddleware, verifyToken } = require("../middleware/auth");
+const { authMiddleware } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const {
-    addUserStream,
-    removeUserStream,
+    emitConversationRead,
     emitMessageCreated,
     getUnreadSummary,
-    pushUnreadSummary,
-    pushConversationRefresh
+    pushConversationRefresh,
+    pushUnreadSummary
 } = require("../utils/realtime");
 
 const router = express.Router();
+
+function parsePositiveInt(value, fallback) {
+    const parsed = parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function safeJsonParse(value, fallback) {
+    try {
+        return value ? JSON.parse(value) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function getUserCredit(db, userId) {
+    const result = db.prepare(`
+        SELECT
+            COUNT(*) AS review_count,
+            ROUND(COALESCE(AVG(rating), 0), 1) AS rating_avg
+        FROM reviews
+        WHERE reviewee_id=?
+    `).get(userId);
+
+    return {
+        review_count: result.review_count || 0,
+        rating_avg: Number(result.rating_avg || 0)
+    };
+}
 
 function buildUserSummary(db, currentUserId, targetUserId) {
     return db.prepare(`
@@ -32,78 +59,93 @@ function buildUserSummary(db, currentUserId, targetUserId) {
     `).get(currentUserId, targetUserId);
 }
 
-function parsePositiveInt(value, fallback) {
-    const parsed = parseInt(value, 10);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
+function buildUserDetail(db, currentUserId, targetUserId) {
+    const user = db.prepare(`
+        SELECT
+            u.id,
+            u.username,
+            u.nickname,
+            u.avatar_url,
+            u.campus,
+            u.bio,
+            u.created_at,
+            EXISTS(
+                SELECT 1
+                FROM friends f
+                WHERE f.user_id=? AND f.friend_id=u.id
+            ) AS is_friend,
+            (
+                SELECT COUNT(*)
+                FROM friends f
+                WHERE f.user_id=u.id
+            ) AS friend_count,
+            (
+                SELECT COUNT(*)
+                FROM products p
+                WHERE p.seller_id=u.id
+            ) AS product_count,
+            (
+                SELECT COUNT(*)
+                FROM products p
+                WHERE p.seller_id=u.id AND p.status='active'
+            ) AS active_product_count
+        FROM users u
+        WHERE u.id=?
+    `).get(currentUserId, targetUserId);
 
-function safeJsonParse(value, fallback) {
-    try {
-        return value ? JSON.parse(value) : fallback;
-    } catch {
-        return fallback;
+    if (!user) {
+        return null;
     }
-}
 
-function streamAuth(req, res, next) {
-    const tokenFromQuery = typeof req.query.token === "string" ? req.query.token.trim() : "";
-    const authHeader = req.headers.authorization;
-    const tokenFromHeader = authHeader && authHeader.startsWith("Bearer ")
-        ? authHeader.slice("Bearer ".length)
-        : "";
-    const token = tokenFromQuery || tokenFromHeader;
-
-    if (!token) {
-        return res.status(401).json({ code: 401, message: "未登录" });
-    }
-
-    try {
-        req.user = verifyToken(token);
-        next();
-    } catch {
-        return res.status(401).json({ code: 401, message: "登录已失效，请重新登录" });
-    }
+    return {
+        ...user,
+        credit: getUserCredit(db, targetUserId)
+    };
 }
 
 function markConversationAsRead(db, currentUserId, peerUserId) {
+    const unread = db.prepare(`
+        SELECT MAX(id) AS last_read_message_id
+        FROM messages
+        WHERE receiver_id=? AND sender_id=? AND is_read=0
+    `).get(currentUserId, peerUserId);
+
     const result = db.prepare(`
         UPDATE messages
         SET is_read=1
         WHERE receiver_id=? AND sender_id=? AND is_read=0
     `).run(currentUserId, peerUserId);
 
-    if (result.changes > 0) {
+    if (result.changes > 0 && unread.last_read_message_id) {
+        emitConversationRead(db, {
+            readerId: currentUserId,
+            peerId: peerUserId,
+            lastReadMessageId: unread.last_read_message_id
+        });
+    } else if (result.changes > 0) {
         pushUnreadSummary(db, currentUserId);
         pushConversationRefresh(currentUserId, { peer_id: Number(peerUserId) });
     }
 
-    return result.changes;
+    return {
+        changes: result.changes,
+        last_read_message_id: unread.last_read_message_id || null
+    };
 }
 
-router.get("/stream", streamAuth, (req, res) => {
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    if (typeof res.flushHeaders === "function") {
-        res.flushHeaders();
+function shouldShowConversation(db, userId, peerId, lastTime) {
+    const hidden = db.prepare(`
+        SELECT hidden_at
+        FROM hidden_conversations
+        WHERE user_id=? AND peer_id=?
+    `).get(userId, peerId);
+
+    if (!hidden?.hidden_at) {
+        return true;
     }
 
-    const client = { res };
-    addUserStream(req.user.id, client);
-    res.write(`event: ready\ndata: ${JSON.stringify({ user_id: req.user.id })}\n\n`);
-    res.write(`event: unread_summary\ndata: ${JSON.stringify(getUnreadSummary(getDb(), req.user.id))}\n\n`);
-
-    const heartbeat = setInterval(() => {
-        res.write(": keep-alive\n\n");
-    }, 25000);
-
-    req.on("close", () => {
-        clearInterval(heartbeat);
-        removeUserStream(req.user.id, client);
-        res.end();
-    });
-});
+    return new Date(lastTime).getTime() > new Date(hidden.hidden_at).getTime();
+}
 
 router.post("/", authMiddleware, (req, res) => {
     const { receiver_id, content } = req.body;
@@ -161,8 +203,15 @@ router.get("/conversation/:userId", authMiddleware, (req, res) => {
 router.post("/conversation/:userId/read", authMiddleware, (req, res) => {
     const db = getDb();
     const peerUserId = Number(req.params.userId);
-    markConversationAsRead(db, req.user.id, peerUserId);
-    return res.json({ code: 200, message: "已更新已读状态", data: getUnreadSummary(db, req.user.id) });
+    const result = markConversationAsRead(db, req.user.id, peerUserId);
+    return res.json({
+        code: 200,
+        message: "已更新已读状态",
+        data: {
+            ...getUnreadSummary(db, req.user.id),
+            last_read_message_id: result.last_read_message_id
+        }
+    });
 });
 
 router.get("/conversations", authMiddleware, (req, res) => {
@@ -193,9 +242,49 @@ router.get("/conversations", authMiddleware, (req, res) => {
         WHERE m.sender_id=? OR m.receiver_id=?
         GROUP BY other_id
         ORDER BY last_time DESC
-    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
+    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id)
+        .filter((item) => shouldShowConversation(db, req.user.id, item.other_id, item.last_time));
 
     return res.json({ code: 200, data });
+});
+
+router.delete("/conversations/:userId", authMiddleware, (req, res) => {
+    const db = getDb();
+    const peerUserId = Number(req.params.userId);
+
+    if (!peerUserId || peerUserId === req.user.id) {
+        return res.json({ code: 400, message: "删除最近会话请求无效" });
+    }
+
+    const hasConversation = db.prepare(`
+        SELECT id
+        FROM messages
+        WHERE (sender_id=? AND receiver_id=?)
+           OR (sender_id=? AND receiver_id=?)
+        LIMIT 1
+    `).get(req.user.id, peerUserId, peerUserId, req.user.id);
+
+    if (!hasConversation) {
+        return res.json({ code: 404, message: "该会话不存在" });
+    }
+
+    const readResult = markConversationAsRead(db, req.user.id, peerUserId);
+
+    db.prepare(`
+        INSERT INTO hidden_conversations (user_id, peer_id, hidden_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, peer_id)
+        DO UPDATE SET hidden_at=CURRENT_TIMESTAMP
+    `).run(req.user.id, peerUserId);
+
+    pushConversationRefresh(req.user.id, { peer_id: peerUserId, type: "conversation_hidden" });
+    pushUnreadSummary(db, req.user.id);
+
+    return res.json({
+        code: 200,
+        message: "已从最近会话中删除",
+        data: { last_read_message_id: readResult.last_read_message_id }
+    });
 });
 
 router.get("/friends", authMiddleware, (req, res) => {
@@ -279,6 +368,33 @@ router.post("/friends/:friendId", authMiddleware, (req, res) => {
         message: "添加好友成功",
         data: buildUserSummary(db, req.user.id, friendId)
     });
+});
+
+router.delete("/friends/:friendId", authMiddleware, (req, res) => {
+    const db = getDb();
+    const friendId = Number(req.params.friendId);
+
+    if (!friendId || friendId === req.user.id) {
+        return res.json({ code: 400, message: "删除好友请求无效" });
+    }
+
+    const exists = db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
+    if (!exists) {
+        return res.json({ code: 404, message: "该用户当前不是你的好友" });
+    }
+
+    const transaction = db.transaction(() => {
+        db.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(req.user.id, friendId);
+        db.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(friendId, req.user.id);
+    });
+    transaction();
+
+    pushConversationRefresh(req.user.id, { peer_id: friendId, type: "friend_removed" });
+    pushConversationRefresh(friendId, { peer_id: req.user.id, type: "friend_removed" });
+    pushUnreadSummary(db, req.user.id);
+    pushUnreadSummary(db, friendId);
+
+    return res.json({ code: 200, message: "已删除好友" });
 });
 
 router.get("/notifications", authMiddleware, (req, res) => {
@@ -379,7 +495,7 @@ router.get("/users/search", authMiddleware, (req, res) => {
 
 router.get("/users/:id", authMiddleware, (req, res) => {
     const db = getDb();
-    const user = buildUserSummary(db, req.user.id, req.params.id);
+    const user = buildUserDetail(db, req.user.id, Number(req.params.id));
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }

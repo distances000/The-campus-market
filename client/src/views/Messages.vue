@@ -32,7 +32,7 @@
                 <div class="section-title">搜索结果</div>
                 <div v-if="searchResults.length" class="list-card">
                     <div v-for="user in searchResults" :key="user.id" class="list-item">
-                        <div class="user-meta">
+                        <button type="button" class="user-meta user-meta-button" @click="openUserDetail(user.id)">
                             <el-avatar :size="44">{{ (user.nickname || user.username || "")[0] }}</el-avatar>
                             <div class="user-info">
                                 <div class="user-name">{{ user.nickname || user.username }}</div>
@@ -41,18 +41,13 @@
                                     <span v-if="user.campus"> · {{ user.campus }}</span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                         <div class="user-actions">
                             <el-button size="small" plain @click="startChat(user)">发消息</el-button>
-                            <el-button
-                                v-if="!user.is_friend"
-                                size="small"
-                                type="primary"
-                                @click="handleAddFriend(user)"
-                            >
+                            <el-button v-if="!user.is_friend" size="small" type="primary" @click="handleAddFriend(user)">
                                 添加好友
                             </el-button>
-                            <el-tag v-else type="success" size="small">已是好友</el-tag>
+                            <el-button v-else size="small" plain @click="openUserDetail(user.id)">查看资料</el-button>
                         </div>
                     </div>
                 </div>
@@ -127,9 +122,13 @@
                                 <div class="user-sub">{{ item.last_message || "暂无消息" }}</div>
                             </div>
                         </div>
-                        <span v-if="item.unread_count > 0" class="conv-badge">
-                            {{ item.unread_count > 99 ? "99+" : item.unread_count }}
-                        </span>
+                        <div class="user-actions">
+                            <el-button size="small" plain @click.stop="openUserDetail(item.other_id)">资料</el-button>
+                            <el-button size="small" plain @click.stop="handleRemoveConversation(item)">删除</el-button>
+                            <span v-if="item.unread_count > 0" class="conv-badge">
+                                {{ item.unread_count > 99 ? "99+" : item.unread_count }}
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <el-empty v-else description="还没有聊天记录" :image-size="80" />
@@ -138,7 +137,7 @@
             <div v-else-if="activeTab === 'friends'">
                 <div v-if="friends.length > 0" class="list-card">
                     <div v-for="friend in friends" :key="friend.id" class="list-item">
-                        <div class="user-meta">
+                        <button type="button" class="user-meta user-meta-button" @click="openUserDetail(friend.id)">
                             <el-avatar :size="48">{{ (friend.nickname || friend.username || "")[0] }}</el-avatar>
                             <div class="user-info">
                                 <div class="user-name">
@@ -150,12 +149,14 @@
                                     <span v-if="friend.last_message"> · {{ friend.last_message }}</span>
                                 </div>
                             </div>
-                        </div>
+                        </button>
                         <div class="user-actions">
                             <span v-if="friend.unread_count > 0" class="conv-badge">
                                 {{ friend.unread_count > 99 ? "99+" : friend.unread_count }}
                             </span>
+                            <el-button size="small" plain @click="openUserDetail(friend.id)">资料</el-button>
                             <el-button size="small" type="primary" @click="startChat(friend)">聊天</el-button>
+                            <el-button size="small" type="danger" plain @click="handleRemoveFriend(friend)">删除</el-button>
                         </div>
                     </div>
                 </div>
@@ -214,7 +215,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "../utils/message";
+import { ElMessage, ElMessageBox } from "../utils/message";
 import { useUserStore } from "../stores/user";
 import { subscribeMessageStream } from "../utils/message-stream";
 import {
@@ -224,6 +225,8 @@ import {
     getNotifications,
     getUnreadCount,
     readNotifications,
+    removeConversation,
+    removeFriend,
     searchUsers
 } from "../api/messages";
 
@@ -284,6 +287,10 @@ function prependNotification(targetRef, notification) {
     targetRef.value = [notification, ...targetRef.value];
 }
 
+function openUserDetail(userId) {
+    router.push("/user/" + userId);
+}
+
 async function fetchConversations() {
     try {
         convs.value = (await getConversations()).data;
@@ -328,13 +335,10 @@ function bindStream() {
                 unreadSummary.value = summary;
             }
         },
-        onMessage: async () => {
-            await Promise.all([fetchConversations(), fetchFriends()]);
-        },
         onConversationRefresh: async () => {
             await Promise.all([fetchConversations(), fetchFriends()]);
         },
-        onNotification: async (notification) => {
+        onNotificationCreated: (notification) => {
             if (!notification) {
                 return;
             }
@@ -378,6 +382,30 @@ async function handleAddFriend(user) {
     } catch {}
 }
 
+async function handleRemoveFriend(friend) {
+    try {
+        await ElMessageBox.confirm(`确认删除好友“${friend.nickname || friend.username}”？`, "删除好友");
+        await removeFriend(friend.id);
+        ElMessage.success("已删除好友");
+        friends.value = friends.value.filter((item) => item.id !== friend.id);
+        searchResults.value = searchResults.value.map((item) => {
+            if (item.id === friend.id) {
+                return { ...item, is_friend: 0 };
+            }
+            return item;
+        });
+    } catch {}
+}
+
+async function handleRemoveConversation(item) {
+    try {
+        await ElMessageBox.confirm(`确认删除与“${item.other_name}”的最近会话？`, "删除最近会话");
+        await removeConversation(item.other_id);
+        convs.value = convs.value.filter((conversation) => conversation.other_id !== item.other_id);
+        ElMessage.success("已从最近会话中删除");
+    } catch {}
+}
+
 function startChat(user) {
     router.push({ path: "/chat/" + user.id, query: { name: user.nickname || user.username || "" } });
 }
@@ -413,7 +441,7 @@ async function handleNotificationClick(item) {
         return;
     }
     if (item.object_type === "friend" && item.object_id) {
-        router.push({ path: "/chat/" + item.object_id, query: { name: item.actor_name || "" } });
+        router.push("/user/" + item.object_id);
         return;
     }
     if (item.object_type === "review") {
@@ -426,8 +454,9 @@ async function handleNotificationClick(item) {
 }
 
 async function syncMessagePage() {
-    if (!userStore.isLoggedIn) return;
-    if (document.visibilityState === "hidden") return;
+    if (!userStore.isLoggedIn || document.visibilityState === "hidden") {
+        return;
+    }
     const tasks = [fetchConversations(), fetchFriends(), fetchUnreadSummary()];
     if (activeTab.value === "interaction") {
         tasks.push(fetchNotificationList("interaction"));
@@ -701,6 +730,14 @@ onUnmounted(() => {
     flex: 1;
 }
 
+.user-meta-button {
+    border: none;
+    padding: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
 .user-info {
     min-width: 0;
     flex: 1;
@@ -743,6 +780,8 @@ onUnmounted(() => {
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .conv-badge {
@@ -779,6 +818,17 @@ onUnmounted(() => {
     .tabs-shell {
         display: flex;
         border-radius: 24px;
+    }
+
+    .list-item {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .user-actions,
+    .notification-side {
+        width: 100%;
+        justify-content: flex-start;
     }
 }
 </style>

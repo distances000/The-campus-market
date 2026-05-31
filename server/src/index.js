@@ -1,7 +1,9 @@
+const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const { initDatabase } = require("./models/init");
+const { attachRealtimeServer } = require("./utils/realtime");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -22,4 +24,6 @@ app.use("/api/upload", require("./routes/upload"));
 app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));
 
 initDatabase();
-app.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));
+const server = http.createServer(app);
+attachRealtimeServer(server);
+server.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));

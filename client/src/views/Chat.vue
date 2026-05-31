@@ -20,7 +20,12 @@
                     </el-avatar>
                     <div class="msg-bubble">
                         <div class="msg-text">{{ msg.content }}</div>
-                        <div class="msg-time">{{ fmt(msg.created_at) }}</div>
+                        <div class="msg-meta">
+                            <span class="msg-time">{{ fmt(msg.created_at) }}</span>
+                            <span v-if="msg.sender_id === userStore.user?.id" class="msg-status">
+                                {{ msg.is_read ? "已读" : "送达" }}
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <el-empty v-if="!messages.length" description="还没有消息，开始聊天吧" :image-size="64" />
@@ -46,14 +51,13 @@
 
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { ArrowLeft } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { subscribeMessageStream } from "../utils/message-stream";
 import { getConversation, getUserBrief, markConversationRead, sendMessage } from "../api/messages";
 
 const route = useRoute();
-const router = useRouter();
 const userStore = useUserStore();
 
 const msgC = ref(null);
@@ -63,14 +67,14 @@ const sending = ref(false);
 const chatName = ref("聊天");
 let unsubscribeStream = null;
 
+function currentPeerId() {
+    return Number(route.params.userId);
+}
+
 function fmt(time) {
     return time
         ? new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
         : "";
-}
-
-function currentPeerId() {
-    return Number(route.params.userId);
 }
 
 function shouldStickToBottom() {
@@ -91,12 +95,31 @@ async function scrollToBottom() {
     }
 }
 
+function applyReadReceipt(payload) {
+    const peerId = currentPeerId();
+    if (!payload) {
+        return;
+    }
+    if (Number(payload.reader_id) !== peerId || Number(payload.peer_id) !== userStore.user?.id) {
+        return;
+    }
+
+    messages.value = messages.value.map((item) => {
+        if (item.sender_id === userStore.user?.id && item.id <= payload.last_read_message_id) {
+            return { ...item, is_read: 1 };
+        }
+        return item;
+    });
+}
+
 async function appendMessage(message, forceScroll = false) {
     if (!message || hasMessage(message.id)) {
         return;
     }
+
     const stickBottom = forceScroll || shouldStickToBottom() || !messages.value.length;
     messages.value.push(message);
+
     if (message.sender_id !== userStore.user?.id) {
         await markConversationRead(currentPeerId());
     }
@@ -144,7 +167,7 @@ function bindStream() {
     }
 
     unsubscribeStream = subscribeMessageStream(userStore.token, {
-        onMessage: async (message) => {
+        onMessageCreated: async (message) => {
             const peerId = currentPeerId();
             if (!message) {
                 return;
@@ -156,6 +179,9 @@ function bindStream() {
                 return;
             }
             await appendMessage(message, message.sender_id === userStore.user?.id);
+        },
+        onMessageRead: (payload) => {
+            applyReadReceipt(payload);
         }
     });
 }
@@ -286,11 +312,18 @@ watch(() => userStore.token, () => {
     border-bottom-right-radius: 8px;
 }
 
-.msg-time {
-    font-size: 11px;
-    color: var(--text-tertiary);
+.msg-meta {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
     margin-top: 6px;
     padding: 0 6px;
+}
+
+.msg-time,
+.msg-status {
+    font-size: 11px;
+    color: var(--text-tertiary);
 }
 
 .chat-input {
