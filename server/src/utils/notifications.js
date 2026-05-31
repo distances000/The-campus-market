@@ -1,3 +1,5 @@
+const { emitNotificationCreated } = require("./realtime");
+
 function createNotification(db, {
     userId,
     actorId = null,
@@ -34,6 +36,7 @@ function createNotification(db, {
         objectId,
         JSON.stringify(extra || {})
     );
+    emitNotificationCreated(db, result.lastInsertRowid);
     return result.lastInsertRowid;
 }
 

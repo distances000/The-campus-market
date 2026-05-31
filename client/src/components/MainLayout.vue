@@ -7,15 +7,15 @@
                     <span class="logo-text">校园集市</span>
                 </router-link>
 
-                <div class="header-search" v-if="showSearch">
+                <div v-if="showSearch" class="header-search">
                     <el-input
                         v-model="searchKeyword"
+                        class="search-input"
                         placeholder="搜索商品..."
                         :prefix-icon="Search"
                         size="large"
                         clearable
                         @keyup.enter="doSearch"
-                        class="search-input"
                     />
                 </div>
 
@@ -56,7 +56,7 @@
             <router-link to="/messages" class="nav-item" :class="{ active: $route.path === '/messages' }">
                 <el-icon><Message /></el-icon>
                 <span>消息</span>
-                <span class="badge" v-if="unreadCount > 0">{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
+                <span v-if="unreadCount > 0" class="badge">{{ unreadCount > 99 ? "99+" : unreadCount }}</span>
             </router-link>
 
             <router-link to="/profile" class="nav-item" :class="{ active: $route.path === '/profile' }">
@@ -68,11 +68,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import { Plus, Shop, ChatDotRound, Message, User, Search } from "./element-icons";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ChatDotRound, Message, Plus, Search, Shop, User } from "./element-icons";
 import { useUserStore } from "../stores/user";
 import { getUnreadCount } from "../api/messages";
+import { subscribeMessageStream } from "../utils/message-stream";
 
 const route = useRoute();
 const router = useRouter();
@@ -83,10 +84,13 @@ const unreadCount = ref(0);
 const showSearch = computed(() => ["/home", "/"].includes(route.path));
 const showPublish = computed(() => ["/home", "/"].includes(route.path));
 let unreadTimer = null;
+let unsubscribeStream = null;
 
 function doSearch() {
     const keyword = searchKeyword.value.trim();
-    if (!keyword) return;
+    if (!keyword) {
+        return;
+    }
     router.push({ path: "/home", query: { keyword } });
 }
 
@@ -95,43 +99,76 @@ async function fetchUnread() {
         unreadCount.value = 0;
         return;
     }
-    if (document.visibilityState === "hidden") return;
+    if (document.visibilityState === "hidden") {
+        return;
+    }
     try {
         const response = await getUnreadCount();
         unreadCount.value = response.data.unread_count;
-    } catch {
-        // ignore
-    }
+    } catch {}
 }
 
 function startUnreadPolling() {
     stopUnreadPolling();
     fetchUnread();
-    unreadTimer = window.setInterval(fetchUnread, 10000);
+    unreadTimer = window.setInterval(fetchUnread, 30000);
 }
 
 function stopUnreadPolling() {
-    if (!unreadTimer) return;
+    if (!unreadTimer) {
+        return;
+    }
     window.clearInterval(unreadTimer);
     unreadTimer = null;
 }
 
+function bindStream() {
+    if (unsubscribeStream) {
+        unsubscribeStream();
+        unsubscribeStream = null;
+    }
+    if (!userStore.token) {
+        unreadCount.value = 0;
+        return;
+    }
+
+    unsubscribeStream = subscribeMessageStream(userStore.token, {
+        onUnreadSummary: (summary) => {
+            unreadCount.value = summary?.unread_count || 0;
+        }
+    });
+}
+
 function handleVisibilityChange() {
-    if (document.visibilityState === "visible") fetchUnread();
+    if (document.visibilityState === "visible") {
+        fetchUnread();
+    }
 }
 
 onMounted(() => {
+    bindStream();
     startUnreadPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 });
+
 onUnmounted(() => {
     stopUnreadPolling();
+    if (unsubscribeStream) {
+        unsubscribeStream();
+        unsubscribeStream = null;
+    }
     document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
+
 watch(() => route.path, () => fetchUnread());
-watch(() => userStore.isLoggedIn, (loggedIn) => {
-    if (loggedIn) startUnreadPolling();
-    else stopUnreadPolling();
+watch(() => userStore.token, () => {
+    bindStream();
+    if (userStore.isLoggedIn) {
+        startUnreadPolling();
+    } else {
+        stopUnreadPolling();
+        unreadCount.value = 0;
+    }
 });
 </script>
 

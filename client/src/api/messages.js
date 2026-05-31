@@ -1,6 +1,7 @@
 import api from "./index";
 export const sendMessage = (rid,c) => api.post("/messages", { receiver_id: rid, content: c });
 export const getConversation = (uid,p) => api.get("/messages/conversation/" + uid, { params: p });
+export const markConversationRead = (uid) => api.post("/messages/conversation/" + uid + "/read");
 export const getConversations = () => api.get("/messages/conversations");
 export const getFriends = () => api.get("/messages/friends");
 export const getNotifications = (kind, params) => api.get("/messages/notifications", { params: { kind, ...params } });

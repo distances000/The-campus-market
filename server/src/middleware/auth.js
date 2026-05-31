@@ -31,4 +31,8 @@ function optionalAuth(req, res, next) {
     next();
 }
 
-module.exports = { generateToken, authMiddleware, optionalAuth, JWT_SECRET };
+function verifyToken(token) {
+    return jwt.verify(token, JWT_SECRET);
+}
+
+module.exports = { generateToken, authMiddleware, optionalAuth, verifyToken, JWT_SECRET };

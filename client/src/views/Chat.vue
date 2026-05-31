@@ -1,33 +1,209 @@
 <template>
-<div class="chat-page"><div class="chat-container">
-<div class="chat-top"><el-button text @click="$router.back()"><el-icon><ArrowLeft/></el-icon></el-button><span class="chat-title">{{chatName}}</span></div>
-<div class="chat-messages" ref="msgC"><div v-for="msg in messages" :key="msg.id" class="msg-item" :class="msg.sender_id===userStore.user?.id?'self':'other'">
-<el-avatar :size="32" v-if="msg.sender_id!==userStore.user?.id">{{(msg.sender_name||"")[0]}}</el-avatar>
-<div class="msg-bubble"><div class="msg-text">{{msg.content}}</div><div class="msg-time">{{fmt(msg.created_at)}}</div></div>
-</div><el-empty v-if="!messages.length" description="还没有消息，开始聊天吧" :image-size="64"/></div>
-<div class="chat-input"><el-input v-model="inputText" placeholder="输入消息..." @keyup.enter="handleSend" size="large"><template #append><el-button type="primary" @click="handleSend" :disabled="!inputText.trim()" :loading="sending">发送</el-button></template></el-input></div>
-</div></div>
+    <div class="chat-page">
+        <div class="chat-container">
+            <div class="chat-top">
+                <el-button text @click="$router.back()">
+                    <el-icon><ArrowLeft /></el-icon>
+                </el-button>
+                <span class="chat-title">{{ chatName }}</span>
+            </div>
+
+            <div ref="msgC" class="chat-messages">
+                <div
+                    v-for="msg in messages"
+                    :key="msg.id"
+                    class="msg-item"
+                    :class="msg.sender_id === userStore.user?.id ? 'self' : 'other'"
+                >
+                    <el-avatar v-if="msg.sender_id !== userStore.user?.id" :size="32">
+                        {{ (msg.sender_name || "")[0] }}
+                    </el-avatar>
+                    <div class="msg-bubble">
+                        <div class="msg-text">{{ msg.content }}</div>
+                        <div class="msg-time">{{ fmt(msg.created_at) }}</div>
+                    </div>
+                </div>
+                <el-empty v-if="!messages.length" description="还没有消息，开始聊天吧" :image-size="64" />
+            </div>
+
+            <div class="chat-input">
+                <el-input v-model="inputText" placeholder="输入消息..." @keyup.enter="handleSend" size="large">
+                    <template #append>
+                        <el-button
+                            type="primary"
+                            :disabled="!inputText.trim()"
+                            :loading="sending"
+                            @click="handleSend"
+                        >
+                            发送
+                        </el-button>
+                    </template>
+                </el-input>
+            </div>
+        </div>
+    </div>
 </template>
+
 <script setup>
-import {ref,onMounted,onUnmounted,nextTick,watch} from "vue";import {useRoute,useRouter} from "vue-router";import {useUserStore} from "../stores/user";import {getConversation,sendMessage,getUserBrief} from "../api/messages";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft } from "../components/element-icons";
-const route=useRoute(),router=useRouter(),userStore=useUserStore(),msgC=ref(null),messages=ref([]),inputText=ref(""),sending=ref(false),chatName=ref("聊天");
-let chatTimer=null;
-function fmt(t){return t?new Date(t).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}):"";}
-async function fetchChatTarget(){try{const r=await getUserBrief(route.params.userId);chatName.value=r.data.nickname||r.data.username||route.query.name||"聊天";}catch{chatName.value=route.query.name||"聊天";}}
-function shouldStickToBottom(){if(!msgC.value)return true;return msgC.value.scrollHeight-msgC.value.scrollTop-msgC.value.clientHeight<60;}
-async function fetchMsgs(forceScroll=false){try{const stickBottom=forceScroll||shouldStickToBottom()||!messages.value.length;const r=await getConversation(route.params.userId);messages.value=r.data.list;if(messages.value.length){const o=messages.value.find(m=>m.sender_id!==userStore.user?.id);chatName.value=o?.sender_name||o?.receiver_name||chatName.value;}await nextTick();if(msgC.value&&stickBottom)msgC.value.scrollTop=msgC.value.scrollHeight;}catch{}}
-async function loadChat(){await fetchChatTarget();await fetchMsgs();}
-async function handleSend(){if(!inputText.value.trim())return;sending.value=true;try{await sendMessage(route.params.userId,inputText.value);inputText.value="";await fetchMsgs(true);}catch{}finally{sending.value=false;}}
-async function syncChat(){if(document.visibilityState==="hidden")return;await fetchMsgs();}
-function startChatPolling(){stopChatPolling();syncChat();chatTimer=window.setInterval(syncChat,3000);}
-function stopChatPolling(){if(!chatTimer)return;window.clearInterval(chatTimer);chatTimer=null;}
-function handleVisibilityChange(){if(document.visibilityState==="visible")syncChat();}
-onMounted(loadChat);
-onMounted(()=>{startChatPolling();document.addEventListener("visibilitychange",handleVisibilityChange);});
-onUnmounted(()=>{stopChatPolling();document.removeEventListener("visibilitychange",handleVisibilityChange);});
-watch(()=>route.params.userId,loadChat);
+import { useUserStore } from "../stores/user";
+import { subscribeMessageStream } from "../utils/message-stream";
+import { getConversation, getUserBrief, markConversationRead, sendMessage } from "../api/messages";
+
+const route = useRoute();
+const router = useRouter();
+const userStore = useUserStore();
+
+const msgC = ref(null);
+const messages = ref([]);
+const inputText = ref("");
+const sending = ref(false);
+const chatName = ref("聊天");
+let unsubscribeStream = null;
+
+function fmt(time) {
+    return time
+        ? new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+        : "";
+}
+
+function currentPeerId() {
+    return Number(route.params.userId);
+}
+
+function shouldStickToBottom() {
+    if (!msgC.value) {
+        return true;
+    }
+    return msgC.value.scrollHeight - msgC.value.scrollTop - msgC.value.clientHeight < 60;
+}
+
+function hasMessage(messageId) {
+    return messages.value.some((item) => item.id === messageId);
+}
+
+async function scrollToBottom() {
+    await nextTick();
+    if (msgC.value) {
+        msgC.value.scrollTop = msgC.value.scrollHeight;
+    }
+}
+
+async function appendMessage(message, forceScroll = false) {
+    if (!message || hasMessage(message.id)) {
+        return;
+    }
+    const stickBottom = forceScroll || shouldStickToBottom() || !messages.value.length;
+    messages.value.push(message);
+    if (message.sender_id !== userStore.user?.id) {
+        await markConversationRead(currentPeerId());
+    }
+    if (stickBottom) {
+        await scrollToBottom();
+    }
+}
+
+async function fetchChatTarget() {
+    try {
+        const response = await getUserBrief(route.params.userId);
+        chatName.value = response.data.nickname || response.data.username || route.query.name || "聊天";
+    } catch {
+        chatName.value = route.query.name || "聊天";
+    }
+}
+
+async function fetchMessages(forceScroll = false) {
+    try {
+        const stickBottom = forceScroll || shouldStickToBottom() || !messages.value.length;
+        const response = await getConversation(route.params.userId);
+        messages.value = response.data.list;
+        if (messages.value.length) {
+            const otherMessage = messages.value.find((item) => item.sender_id !== userStore.user?.id);
+            chatName.value = otherMessage?.sender_name || otherMessage?.receiver_name || chatName.value;
+        }
+        if (stickBottom) {
+            await scrollToBottom();
+        }
+    } catch {}
+}
+
+async function loadChat(forceScroll = false) {
+    await fetchChatTarget();
+    await fetchMessages(forceScroll);
+}
+
+function bindStream() {
+    if (unsubscribeStream) {
+        unsubscribeStream();
+        unsubscribeStream = null;
+    }
+    if (!userStore.token) {
+        return;
+    }
+
+    unsubscribeStream = subscribeMessageStream(userStore.token, {
+        onMessage: async (message) => {
+            const peerId = currentPeerId();
+            if (!message) {
+                return;
+            }
+            const isCurrentConversation =
+                (message.sender_id === peerId && message.receiver_id === userStore.user?.id) ||
+                (message.sender_id === userStore.user?.id && message.receiver_id === peerId);
+            if (!isCurrentConversation) {
+                return;
+            }
+            await appendMessage(message, message.sender_id === userStore.user?.id);
+        }
+    });
+}
+
+async function handleSend() {
+    if (!inputText.value.trim()) {
+        return;
+    }
+
+    sending.value = true;
+    try {
+        const response = await sendMessage(route.params.userId, inputText.value);
+        inputText.value = "";
+        await appendMessage(response.data, true);
+    } catch {} finally {
+        sending.value = false;
+    }
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState === "visible") {
+        fetchMessages();
+    }
+}
+
+onMounted(async () => {
+    await loadChat(true);
+    bindStream();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+
+onUnmounted(() => {
+    if (unsubscribeStream) {
+        unsubscribeStream();
+        unsubscribeStream = null;
+    }
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+});
+
+watch(() => route.params.userId, async () => {
+    await loadChat(true);
+});
+
+watch(() => userStore.token, () => {
+    bindStream();
+});
 </script>
+
 <style scoped>
 .chat-page {
     height: calc(100vh - var(--header-height) - 92px);
