@@ -1,6 +1,49 @@
 <template>
     <div class="post-detail">
-        <div v-if="post" class="page-container post-detail-container">
+        <div v-if="loading" class="page-container post-detail-container post-detail-skeleton">
+            <div class="pd-author">
+                <div class="skeleton-circle skeleton-shimmer"></div>
+                <div class="pd-author-main">
+                    <div class="author-skeleton-block">
+                        <div class="skeleton-line skeleton-shimmer skeleton-name"></div>
+                        <div class="skeleton-line skeleton-shimmer skeleton-time"></div>
+                    </div>
+                    <div class="skeleton-line skeleton-shimmer skeleton-action"></div>
+                </div>
+            </div>
+
+            <div class="pd-content pd-content-skeleton">
+                <div class="skeleton-line skeleton-shimmer skeleton-paragraph"></div>
+                <div class="skeleton-line skeleton-shimmer skeleton-paragraph"></div>
+                <div class="skeleton-line skeleton-shimmer skeleton-paragraph short"></div>
+            </div>
+
+            <div class="pd-images pd-images-skeleton">
+                <div class="skeleton-image skeleton-shimmer"></div>
+            </div>
+
+            <div class="pd-actions pd-actions-skeleton">
+                <div class="skeleton-line skeleton-shimmer skeleton-chip"></div>
+                <div class="skeleton-line skeleton-shimmer skeleton-chip"></div>
+                <div class="skeleton-line skeleton-shimmer skeleton-chip short"></div>
+            </div>
+
+            <div class="comments-section comments-skeleton">
+                <div class="skeleton-line skeleton-shimmer skeleton-section-title"></div>
+                <div v-for="item in 2" :key="item" class="comment-item">
+                    <div class="skeleton-circle small skeleton-shimmer"></div>
+                    <div class="comment-body">
+                        <div class="comment-header">
+                            <div class="skeleton-line skeleton-shimmer skeleton-comment-name"></div>
+                            <div class="skeleton-line skeleton-shimmer skeleton-comment-time"></div>
+                        </div>
+                        <div class="skeleton-line skeleton-shimmer skeleton-comment-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-else-if="post" class="page-container post-detail-container">
             <div class="pd-author">
                 <el-avatar :size="44">{{ (post.author_name || "")[0] }}</el-avatar>
                 <div class="pd-author-main">
@@ -57,6 +100,10 @@
             </div>
         </div>
 
+        <div v-else class="page-container post-detail-container empty-state-wrap">
+            <el-empty description="帖子不存在或已删除" />
+        </div>
+
         <el-dialog v-model="showReportDialog" title="举报帖子" width="420px" destroy-on-close>
             <el-form label-position="top">
                 <el-form-item label="举报原因">
@@ -89,7 +136,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "../utils/message";
 import { ChatLineSquare, Pointer } from "../components/element-icons";
@@ -103,6 +150,7 @@ const router = useRouter();
 const userStore = useUserStore();
 
 const post = ref(null);
+const loading = ref(false);
 const commentText = ref("");
 const showReportDialog = ref(false);
 const reportSubmitting = ref(false);
@@ -120,9 +168,14 @@ function resetReportForm() {
 }
 
 async function fetchPost() {
+    loading.value = true;
+    post.value = null;
     try {
         post.value = (await getPost(route.params.id)).data;
-    } catch {}
+    } catch {
+    } finally {
+        loading.value = false;
+    }
 }
 
 async function handleLike() {
@@ -135,7 +188,8 @@ async function handleLike() {
         const result = await likePost(post.value.id);
         post.value.is_liked = result.data.liked;
         post.value.likes_count += result.data.liked ? 1 : -1;
-    } catch {}
+    } catch {
+    }
 }
 
 async function handleComment() {
@@ -149,7 +203,8 @@ async function handleComment() {
         post.value.comments_count += 1;
         commentText.value = "";
         ElMessage.success("评论成功");
-    } catch {}
+    } catch {
+    }
 }
 
 function openReportDialog() {
@@ -190,15 +245,21 @@ async function handleDelete() {
         await deletePost(post.value.id);
         ElMessage.success("已删除");
         router.push("/school-circle");
-    } catch {}
+    } catch {
+    }
 }
 
 onMounted(fetchPost);
+watch(() => route.params.id, fetchPost);
 </script>
 
 <style scoped>
 .post-detail-container {
     max-width: 700px;
+}
+
+.post-detail-skeleton {
+    pointer-events: none;
 }
 
 .pd-author {
@@ -238,6 +299,12 @@ onMounted(fetchPost);
     line-height: 1.8;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.pd-content-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .pd-images {
@@ -322,5 +389,116 @@ onMounted(fetchPost);
     bottom: 64px;
     padding: 12px 0;
     background: var(--bg-secondary);
+}
+
+.empty-state-wrap {
+    min-height: 50vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.author-skeleton-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.skeleton-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, rgba(220, 226, 239, 0.75) 25%, rgba(243, 246, 252, 0.96) 50%, rgba(220, 226, 239, 0.75) 75%);
+    background-size: 200% 100%;
+}
+
+.skeleton-circle.small {
+    width: 32px;
+    height: 32px;
+}
+
+.skeleton-line {
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(220, 226, 239, 0.75) 25%, rgba(243, 246, 252, 0.96) 50%, rgba(220, 226, 239, 0.75) 75%);
+    background-size: 200% 100%;
+}
+
+.skeleton-name {
+    width: 112px;
+    height: 16px;
+}
+
+.skeleton-time {
+    width: 156px;
+    height: 12px;
+}
+
+.skeleton-action {
+    width: 84px;
+    height: 32px;
+}
+
+.skeleton-paragraph {
+    height: 16px;
+    width: 100%;
+}
+
+.skeleton-paragraph.short {
+    width: 72%;
+}
+
+.skeleton-image {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: var(--radius);
+}
+
+.pd-actions-skeleton {
+    align-items: center;
+}
+
+.skeleton-chip {
+    width: 72px;
+    height: 18px;
+}
+
+.skeleton-chip.short {
+    width: 58px;
+    margin-left: auto;
+}
+
+.skeleton-section-title {
+    width: 126px;
+    height: 18px;
+    margin-bottom: 12px;
+}
+
+.skeleton-comment-name {
+    width: 88px;
+    height: 13px;
+}
+
+.skeleton-comment-time {
+    width: 112px;
+    height: 11px;
+}
+
+.skeleton-comment-content {
+    width: 82%;
+    height: 14px;
+}
+
+.skeleton-shimmer {
+    animation: skeleton-shimmer 1.25s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 </style>

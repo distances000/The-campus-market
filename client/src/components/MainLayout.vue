@@ -70,6 +70,7 @@ import { Plus, Search } from "./element-icons";
 import { useUserStore } from "../stores/user";
 import { getUnreadCount } from "../api/messages";
 import { subscribeMessageStream } from "../utils/message-stream";
+import { ElNotification } from "../utils/message";
 
 const route = useRoute();
 const router = useRouter();
@@ -81,6 +82,99 @@ const showSearch = computed(() => ["/home", "/"].includes(route.path));
 const showPublish = computed(() => ["/home", "/"].includes(route.path));
 let unreadTimer = null;
 let unsubscribeStream = null;
+
+function getNotificationRouteTarget(notification) {
+    const objectType = notification?.object_type;
+    const objectId = Number(notification?.object_id);
+    const extra = notification?.extra || {};
+
+    if (objectType === "product" && objectId) {
+        return `/product/${objectId}`;
+    }
+    if (objectType === "post" && objectId) {
+        return `/post/${objectId}`;
+    }
+    if (objectType === "friend" && objectId) {
+        return `/user/${objectId}`;
+    }
+    if ((objectType === "order" || objectType === "review") && extra.product_id) {
+        return `/product/${extra.product_id}`;
+    }
+    return "/messages";
+}
+
+function getNotificationPresentation(notification) {
+    const eventType = notification?.event_type;
+    const content = typeof notification?.content === "string" ? notification.content.trim() : "";
+
+    const presets = {
+        order_created: {
+            title: "您的商品已被拍下",
+            type: "success"
+        },
+        post_commented: {
+            title: "您收到了一条新评论",
+            type: "info"
+        },
+        post_liked: {
+            title: "有人赞了你的校园墙",
+            type: "info"
+        },
+        product_favorited: {
+            title: "有人收藏了您的商品",
+            type: "info"
+        },
+        order_completed: {
+            title: "买家已确认订单完成",
+            type: "success"
+        },
+        order_cancelled: {
+            title: "订单状态有更新",
+            type: "warning"
+        },
+        review_received: {
+            title: "您收到了一条新评价",
+            type: "success"
+        },
+        friend_added: {
+            title: "您有新的好友",
+            type: "info"
+        },
+        report_processed: {
+            title: "举报处理结果已更新",
+            type: "info"
+        }
+    };
+
+    const preset = presets[eventType] || {};
+    return {
+        title: preset.title || notification?.title || "您有一条新通知",
+        message: content || "点击查看详情",
+        type: preset.type || (notification?.kind === "system" ? "success" : "info"),
+        target: getNotificationRouteTarget(notification)
+    };
+}
+
+function openNotificationTarget(target) {
+    if (!target) {
+        return;
+    }
+    router.push(target).catch(() => {});
+}
+
+function showIncomingNotification(notification) {
+    if (!notification?.id) {
+        return;
+    }
+
+    const presentation = getNotificationPresentation(notification);
+    ElNotification[presentation.type]?.({
+        title: presentation.title,
+        message: presentation.message,
+        duration: 4200,
+        onClick: () => openNotificationTarget(presentation.target)
+    });
+}
 
 function doSearch() {
     const keyword = searchKeyword.value.trim();
@@ -131,6 +225,9 @@ function bindStream() {
     unsubscribeStream = subscribeMessageStream(userStore.token, {
         onUnreadSummary: (summary) => {
             unreadCount.value = summary?.unread_count || 0;
+        },
+        onNotificationCreated: (notification) => {
+            showIncomingNotification(notification);
         }
     });
 }

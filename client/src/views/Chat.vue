@@ -8,6 +8,14 @@
                 <span class="chat-title">{{ chatName }}</span>
             </div>
 
+            <div
+                v-if="showConnectionBanner"
+                class="chat-connection-banner"
+                :class="`is-${connectionState}`"
+            >
+                {{ connectionBannerText }}
+            </div>
+
             <div ref="msgC" class="chat-messages">
                 <div
                     v-for="msg in messages"
@@ -50,7 +58,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
@@ -65,6 +73,7 @@ const messages = ref([]);
 const inputText = ref("");
 const sending = ref(false);
 const chatName = ref("聊天");
+const connectionState = ref("idle");
 let unsubscribeStream = null;
 
 function currentPeerId() {
@@ -77,12 +86,18 @@ function fmt(time) {
         : "";
 }
 
-function shouldStickToBottom() {
-    if (!msgC.value) {
-        return true;
+const showConnectionBanner = computed(() =>
+    ["connecting", "reconnecting", "error"].includes(connectionState.value)
+);
+const connectionBannerText = computed(() => {
+    if (connectionState.value === "reconnecting") {
+        return "连接已断开，正在重连…";
     }
-    return msgC.value.scrollHeight - msgC.value.scrollTop - msgC.value.clientHeight < 60;
-}
+    if (connectionState.value === "error") {
+        return "实时连接异常，正在尝试恢复…";
+    }
+    return "正在连接聊天服务…";
+});
 
 function hasMessage(messageId) {
     return messages.value.some((item) => item.id === messageId);
@@ -117,13 +132,12 @@ async function appendMessage(message, forceScroll = false) {
         return;
     }
 
-    const stickBottom = forceScroll || shouldStickToBottom() || !messages.value.length;
     messages.value.push(message);
 
     if (message.sender_id !== userStore.user?.id) {
         await markConversationRead(currentPeerId());
     }
-    if (stickBottom) {
+    if (forceScroll || !messages.value.length) {
         await scrollToBottom();
     }
 }
@@ -139,14 +153,13 @@ async function fetchChatTarget() {
 
 async function fetchMessages(forceScroll = false) {
     try {
-        const stickBottom = forceScroll || shouldStickToBottom() || !messages.value.length;
         const response = await getConversation(route.params.userId);
         messages.value = response.data.list;
         if (messages.value.length) {
             const otherMessage = messages.value.find((item) => item.sender_id !== userStore.user?.id);
             chatName.value = otherMessage?.sender_name || otherMessage?.receiver_name || chatName.value;
         }
-        if (stickBottom) {
+        if (forceScroll || messages.value.length) {
             await scrollToBottom();
         }
     } catch {}
@@ -178,10 +191,13 @@ function bindStream() {
             if (!isCurrentConversation) {
                 return;
             }
-            await appendMessage(message, message.sender_id === userStore.user?.id);
+            await appendMessage(message, true);
         },
         onMessageRead: (payload) => {
             applyReadReceipt(payload);
+        },
+        onConnectionStateChange: (state) => {
+            connectionState.value = state || "idle";
         }
     });
 }
@@ -203,7 +219,7 @@ async function handleSend() {
 
 function handleVisibilityChange() {
     if (document.visibilityState === "visible") {
-        fetchMessages();
+        fetchMessages(true);
     }
 }
 
@@ -278,16 +294,23 @@ watch(() => userStore.token, () => {
 
 .msg-item {
     display: flex;
+    width: 100%;
     gap: 10px;
     margin-bottom: 18px;
     align-items: flex-start;
 }
 
 .msg-item.self {
-    flex-direction: row-reverse;
+    justify-content: flex-end;
+}
+
+.msg-item.other {
+    justify-content: flex-start;
 }
 
 .msg-bubble {
+    display: flex;
+    flex-direction: column;
     max-width: 72%;
 }
 
@@ -314,16 +337,41 @@ watch(() => userStore.token, () => {
 
 .msg-meta {
     display: flex;
-    justify-content: flex-end;
     gap: 8px;
     margin-top: 6px;
     padding: 0 6px;
+}
+
+.msg-item.self .msg-meta {
+    justify-content: flex-end;
+}
+
+.msg-item.other .msg-meta {
+    justify-content: flex-start;
 }
 
 .msg-time,
 .msg-status {
     font-size: 11px;
     color: var(--text-tertiary);
+}
+
+.chat-connection-banner {
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(223, 226, 235, 0.82);
+}
+
+.chat-connection-banner.is-connecting {
+    color: #6b4f00;
+    background: rgba(255, 244, 204, 0.9);
+}
+
+.chat-connection-banner.is-reconnecting,
+.chat-connection-banner.is-error {
+    color: #8d2c0b;
+    background: rgba(255, 225, 214, 0.92);
 }
 
 .chat-input {

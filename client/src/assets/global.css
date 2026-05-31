@@ -388,8 +388,119 @@ img {
     opacity: 0;
 }
 
+.ui-notice-root {
+    position: fixed;
+    right: 20px;
+    bottom: 104px;
+    z-index: 2100;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.ui-notice {
+    width: min(360px, calc(100vw - 28px));
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 24px;
+    border: 1px solid rgba(194, 199, 208, 0.34);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(18px);
+    transition: transform 0.22s ease, opacity 0.22s ease;
+    pointer-events: auto;
+}
+
+.ui-notice.is-clickable {
+    cursor: pointer;
+}
+
+.ui-notice.is-clickable:hover {
+    transform: translateY(-2px);
+}
+
+.ui-notice.is-hide {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+.ui-notice-info {
+    background: rgba(240, 245, 255, 0.98);
+    color: #17305c;
+}
+
+.ui-notice-success {
+    background: rgba(235, 247, 230, 0.98);
+    color: #214f0d;
+}
+
+.ui-notice-warning {
+    background: rgba(255, 243, 223, 0.98);
+    color: #714200;
+}
+
+.ui-notice-error {
+    background: rgba(255, 230, 225, 0.98);
+    color: #8c1d18;
+}
+
+.ui-notice-body {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ui-notice-title {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.ui-notice-message {
+    font-size: 13px;
+    line-height: 1.5;
+    color: inherit;
+    opacity: 0.84;
+    word-break: break-word;
+}
+
+.ui-notice-close {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.48);
+    color: inherit;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.ui-notice-close:hover {
+    background: rgba(255, 255, 255, 0.72);
+}
+
 .compat-icon {
     font-style: normal;
     font-size: 14px;
     line-height: 1;
+}
+
+@media (max-width: 640px) {
+    .ui-notice-root {
+        right: 12px;
+        left: 12px;
+        bottom: 92px;
+        align-items: stretch;
+    }
+
+    .ui-notice {
+        width: 100%;
+    }
 }

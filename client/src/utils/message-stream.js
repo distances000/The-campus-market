@@ -3,6 +3,16 @@ let socket = null;
 let reconnectTimer = null;
 let listeners = new Set();
 let manuallyClosed = false;
+let connectionState = "idle";
+let isReconnectAttempt = false;
+
+function setConnectionState(state) {
+    if (connectionState === state) {
+        return;
+    }
+    connectionState = state;
+    dispatch("onConnectionStateChange", state);
+}
 
 function buildWebSocketUrl(token) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -30,6 +40,8 @@ function scheduleReconnect() {
     if (manuallyClosed || !currentToken || reconnectTimer) {
         return;
     }
+    isReconnectAttempt = true;
+    setConnectionState("reconnecting");
     reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
         connect();
@@ -94,15 +106,19 @@ function connect() {
     }
 
     manuallyClosed = false;
+    setConnectionState(isReconnectAttempt ? "reconnecting" : "connecting");
     const nextSocket = new WebSocket(buildWebSocketUrl(currentToken));
     socket = nextSocket;
 
     nextSocket.onopen = () => {
         clearReconnectTimer();
+        isReconnectAttempt = false;
+        setConnectionState("connected");
         dispatch("onOpen");
     };
     nextSocket.onmessage = handleSocketMessage;
     nextSocket.onerror = () => {
+        setConnectionState("error");
         dispatch("onError");
     };
     nextSocket.onclose = () => {
@@ -131,6 +147,9 @@ export function subscribeMessageStream(token, handlers = {}) {
         return () => {};
     }
     listeners.add(handlers);
+    if (typeof handlers.onConnectionStateChange === "function") {
+        handlers.onConnectionStateChange(connectionState);
+    }
     ensureMessageStream(token);
 
     return () => {
@@ -153,6 +172,8 @@ export function closeMessageStream() {
     manuallyClosed = true;
     clearReconnectTimer();
     currentToken = "";
+    isReconnectAttempt = false;
+    setConnectionState("idle");
     if (socket) {
         socket.close();
         cleanupSocket();
