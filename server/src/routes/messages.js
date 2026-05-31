@@ -218,31 +218,36 @@ router.get("/conversations", authMiddleware, async (req, res) => {
     const db = getDb();
     const data = await db.prepare(`
         SELECT
-            CASE WHEN m.sender_id=? THEN m.receiver_id ELSE m.sender_id END AS other_id,
+            conv.other_id,
             u.nickname AS other_name,
             u.avatar_url AS other_avatar,
-            MAX(m.created_at) AS last_time,
+            conv.last_time,
             (
                 SELECT content
                 FROM messages m2
-                WHERE (m2.sender_id=m.sender_id AND m2.receiver_id=m.receiver_id)
-                   OR (m2.sender_id=m.receiver_id AND m2.receiver_id=m.sender_id)
-                ORDER BY m2.created_at DESC
+                WHERE (m2.sender_id=? AND m2.receiver_id=conv.other_id)
+                   OR (m2.sender_id=conv.other_id AND m2.receiver_id=?)
+                ORDER BY m2.created_at DESC, m2.id DESC
                 LIMIT 1
             ) AS last_message,
             (
                 SELECT COUNT(*)
                 FROM messages m3
                 WHERE m3.receiver_id=?
-                  AND m3.sender_id=CASE WHEN m.sender_id=? THEN m.receiver_id ELSE m.sender_id END
+                  AND m3.sender_id=conv.other_id
                   AND m3.is_read=0
             ) AS unread_count
-        FROM messages m
-        JOIN users u ON u.id=CASE WHEN m.sender_id=? THEN m.receiver_id ELSE m.sender_id END
-        WHERE m.sender_id=? OR m.receiver_id=?
-        GROUP BY other_id
-        ORDER BY last_time DESC
-    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
+        FROM (
+            SELECT
+                CASE WHEN sender_id=? THEN receiver_id ELSE sender_id END AS other_id,
+                MAX(created_at) AS last_time
+            FROM messages
+            WHERE sender_id=? OR receiver_id=?
+            GROUP BY CASE WHEN sender_id=? THEN receiver_id ELSE sender_id END
+        ) AS conv
+        JOIN users u ON u.id=conv.other_id
+        ORDER BY conv.last_time DESC
+    `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
 
     const visible = [];
     for (const item of data) {
@@ -279,8 +284,7 @@ router.delete("/conversations/:userId", authMiddleware, async (req, res) => {
     await db.prepare(`
         INSERT INTO hidden_conversations (user_id, peer_id, hidden_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id, peer_id)
-        DO UPDATE SET hidden_at=CURRENT_TIMESTAMP
+        ON DUPLICATE KEY UPDATE hidden_at=CURRENT_TIMESTAMP
     `).run(req.user.id, peerUserId);
 
     pushConversationRefresh(req.user.id, { peer_id: peerUserId, type: "conversation_hidden" });

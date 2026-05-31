@@ -12,8 +12,8 @@
 
 部署架构：
 
-- `postgres`
-    - PostgreSQL 数据库
+- `mysql`
+    - MySQL 数据库
 - `server1`
     - Node.js 后端实例 1
 - `server2`
@@ -40,7 +40,7 @@ copy .env.example .env
 
 最少要改这些：
 
-- `POSTGRES_PASSWORD`
+- `MYSQL_ROOT_PASSWORD`
 - `JWT_SECRET`
 - `DOMAINS`
 - `LETSENCRYPT_EMAIL`
@@ -70,7 +70,7 @@ docker compose up -d --build
 
 首次启动时会自动完成：
 
-- PostgreSQL 初始化
+- MySQL 初始化
 - 后端建表
 - 前端构建
 - Nginx 反向代理启动
@@ -126,8 +126,8 @@ docker compose up -d --build
 
 以下数据通过 Docker Volume 持久化：
 
-- `postgres_data`
-    - PostgreSQL 数据
+- `mysql_data`
+    - MySQL 数据
 - `server_uploads`
     - 用户上传图片
 - `certbot_www`
@@ -155,7 +155,7 @@ Nginx 当前会把后端流量分发到：
 
 ## 注意事项
 
-1. 这个部署方案默认后端连接 PostgreSQL，不再使用 SQLite
+1. 这个部署方案默认后端连接 MySQL，不再使用 SQLite
 2. WebSocket 已通过 Nginx 配置转发
 3. 上传文件目录已经做了共享卷，两个后端实例不会各写各的
 4. 首次申请证书失败时，先检查：

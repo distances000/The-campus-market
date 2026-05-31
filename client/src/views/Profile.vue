@@ -1,60 +1,186 @@
-<template>
-<div class="profile-page" v-if="userStore.isLoggedIn">
-    <div class="page-container" style="max-width: 680px">
-        <section class="profile-hero">
-            <div class="profile-card">
-                <div class="avatar-wrap">
-                    <el-avatar :size="76">{{ (userStore.user?.nickname || userStore.user?.username || "")[0] }}</el-avatar>
-                </div>
-                <div class="profile-info">
-                    <div class="profile-eyebrow">个人中心</div>
-                    <h2>{{ userStore.user?.nickname || userStore.user?.username }}</h2>
-                    <p v-if="userStore.user?.campus">{{ userStore.user.campus }}</p>
-                    <span class="profile-meta">{{ userStore.user?.bio || "完善资料可以提升交易信任感" }}</span>
-                </div>
-                <div class="profile-actions">
-                    <el-button size="small" plain @click="showEdit=true">编辑资料</el-button>
-                    <el-button size="small" plain @click="showPasswordDialog=true">修改密码</el-button>
-                </div>
-            </div>
+﻿<template>
+    <div v-if="userStore.isLoggedIn" class="profile-page">
+        <div class="page-container profile-shell">
+            <section class="profile-hero">
+                <div class="profile-card">
+                    <el-avatar :size="76">
+                        {{ profileInitial }}
+                    </el-avatar>
 
-            <div class="profile-admin-actions">
-                <el-button
-                    v-if="userStore.user?.is_admin"
-                    size="small"
-                    type="primary"
-                    @click="goAdminReports"
+                    <div class="profile-info">
+                        <div class="profile-eyebrow">个人中心</div>
+                        <h2>{{ displayName }}</h2>
+                        <p v-if="userStore.user?.campus">{{ userStore.user.campus }}</p>
+                        <span class="profile-meta">{{ userStore.user?.bio || "完善资料可以提升交易信任感" }}</span>
+                    </div>
+
+                    <div class="profile-actions">
+                        <el-button size="small" plain @click="openEditDialog">编辑资料</el-button>
+                        <el-button size="small" plain @click="showPasswordDialog = true">修改密码</el-button>
+                    </div>
+                </div>
+
+                <div class="profile-admin-actions">
+                    <template v-if="userStore.user?.is_admin">
+                        <el-button size="small" type="primary" @click="goAdminReports">举报后台</el-button>
+                        <el-button size="small" plain @click="goAdminPasswordResets">密码重置工单</el-button>
+                    </template>
+                    <el-button
+                        v-else
+                        size="small"
+                        type="warning"
+                        plain
+                        :loading="bootstrappingAdmin"
+                        @click="handleBootstrapAdmin"
+                    >
+                        初始化管理员
+                    </el-button>
+                </div>
+
+                <div v-if="userStore.user?.must_change_password" class="security-banner">
+                    <div class="security-banner__copy">
+                        <strong>当前账号需要立即修改密码</strong>
+                        <span>你的密码刚被管理员人工重置。请先修改为只有你自己知道的新密码，再继续使用其他功能。</span>
+                    </div>
+                    <el-button size="small" type="primary" @click="showPasswordDialog = true">立即修改</el-button>
+                </div>
+
+                <div class="profile-highlights">
+                    <div class="highlight-card">
+                        <span class="highlight-label">我的商品</span>
+                        <strong class="highlight-value">{{ myProducts.length }}</strong>
+                    </div>
+                    <div class="highlight-card">
+                        <span class="highlight-label">我的收藏</span>
+                        <strong class="highlight-value">{{ favoriteProducts.length }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <div class="profile-tabs">
+                <button
+                    type="button"
+                    class="tab-chip"
+                    :class="{ active: activeTab === 'products' }"
+                    @click="activeTab = 'products'"
                 >
-                    进入管理后台
-                </el-button>
-                <el-button
-                    v-else
-                    size="small"
-                    type="warning"
-                    plain
-                    :loading="bootstrappingAdmin"
-                    @click="handleBootstrapAdmin"
+                    <el-icon><Goods /></el-icon>
+                    <span>我的商品</span>
+                </button>
+                <button
+                    type="button"
+                    class="tab-chip"
+                    :class="{ active: activeTab === 'favorites' }"
+                    @click="activeTab = 'favorites'"
                 >
-                    初始化管理员
-                </el-button>
+                    <el-icon><Star /></el-icon>
+                    <span>我的收藏</span>
+                </button>
             </div>
 
-            <div class="profile-highlights">
-                <div class="highlight-card">
-                    <span class="highlight-label">我的商品</span>
-                    <strong class="highlight-value">{{ myProducts.length }}</strong>
+            <section class="content-card">
+                <div class="content-head">
+                    <div class="content-title">{{ activeTab === 'products' ? '我的商品' : '我的收藏' }}</div>
+                    <div class="content-subtitle">
+                        {{ activeTab === 'products' ? '管理你发布的商品状态和编辑入口' : '查看并整理你关注过的商品' }}
+                    </div>
                 </div>
-                <div class="highlight-card">
-                    <span class="highlight-label">我的收藏</span>
-                    <strong class="highlight-value">{{ favoriteProducts.length }}</strong>
-                </div>
-            </div>
-        </section>
 
-        <el-dialog v-model="showEdit" title="编辑资料" width="420px">
+                <div v-if="activeTab === 'products'">
+                    <div v-if="myProducts.length" class="my-product-list">
+                        <div
+                            v-for="product in myProducts"
+                            :key="product.id"
+                            class="my-product-item"
+                            @click="$router.push('/product/' + product.id)"
+                        >
+                            <img :src="getImg(product)" class="mp-thumb" />
+                            <div class="mp-info">
+                                <div class="mp-top">
+                                    <div class="mp-title">{{ product.title }}</div>
+                                    <el-tag :type="getStatusMeta(product.status).type" size="small">
+                                        {{ getStatusMeta(product.status).label }}
+                                    </el-tag>
+                                </div>
+                                <div class="mp-price">&yen;{{ product.price }}</div>
+                                <div class="mp-actions">
+                                    <el-button size="small" plain @click.stop="goEdit(product)">编辑</el-button>
+                                    <el-button
+                                        v-if="product.status === 'active'"
+                                        size="small"
+                                        type="success"
+                                        plain
+                                        @click.stop="handleMarkSold(product)"
+                                    >
+                                        标记售出
+                                    </el-button>
+                                    <el-button
+                                        v-if="product.status === 'active'"
+                                        size="small"
+                                        type="warning"
+                                        plain
+                                        @click.stop="handleTakeDown(product)"
+                                    >
+                                        下架
+                                    </el-button>
+                                    <el-button
+                                        v-if="product.status === 'inactive'"
+                                        size="small"
+                                        type="success"
+                                        plain
+                                        @click.stop="handleRelist(product)"
+                                    >
+                                        重新上架
+                                    </el-button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <el-empty v-else description="还没有发布商品" :image-size="88" />
+                </div>
+
+                <div v-else>
+                    <div v-if="favoriteProducts.length" class="my-product-list">
+                        <div
+                            v-for="product in favoriteProducts"
+                            :key="product.id"
+                            class="my-product-item"
+                            @click="$router.push('/product/' + product.id)"
+                        >
+                            <img :src="getImg(product)" class="mp-thumb" />
+                            <div class="mp-info">
+                                <div class="mp-top">
+                                    <div class="mp-title">{{ product.title }}</div>
+                                    <el-tag :type="getStatusMeta(product.status).type" size="small">
+                                        {{ getStatusMeta(product.status).label }}
+                                    </el-tag>
+                                </div>
+                                <div class="mp-price">&yen;{{ product.price }}</div>
+                                <div class="mp-meta">
+                                    <span>{{ product.seller_name }}</span>
+                                    <span v-if="product.campus">{{ product.campus }}</span>
+                                </div>
+                                <div class="mp-actions">
+                                    <el-button size="small" type="warning" plain @click.stop="handleUnfavorite(product)">
+                                        取消收藏
+                                    </el-button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <el-empty v-else description="还没有收藏商品" :image-size="88" />
+                </div>
+            </section>
+
+            <div class="logout-section">
+                <el-button type="danger" style="width: 100%" @click="handleLogout">退出登录</el-button>
+            </div>
+        </div>
+
+        <el-dialog v-model="showEdit" title="编辑资料" width="420px" @closed="resetEditForm">
             <el-form :model="editForm" label-position="top">
                 <el-form-item label="昵称">
-                    <el-input v-model="editForm.nickname"/>
+                    <el-input v-model="editForm.nickname" />
                 </el-form-item>
                 <el-form-item label="校区">
                     <el-select v-model="editForm.campus" style="width: 100%">
@@ -67,14 +193,14 @@
                     </el-select>
                 </el-form-item>
                 <el-form-item label="个人简介">
-                    <el-input v-model="editForm.bio" type="textarea" :rows="3"/>
+                    <el-input v-model="editForm.bio" type="textarea" :rows="3" />
                 </el-form-item>
                 <el-form-item label="手机号">
-                    <el-input v-model="editForm.phone"/>
+                    <el-input v-model="editForm.phone" maxlength="11" placeholder="建议保留可用于找回密码的手机号" />
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showEdit=false">取消</el-button>
+                <el-button @click="showEdit = false">取消</el-button>
                 <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
             </template>
         </el-dialog>
@@ -107,99 +233,29 @@
                 </el-form-item>
             </el-form>
             <template #footer>
-                <el-button @click="showPasswordDialog=false">取消</el-button>
+                <el-button @click="showPasswordDialog = false">取消</el-button>
                 <el-button type="primary" :loading="passwordSaving" @click="handleResetPassword">确认修改</el-button>
             </template>
         </el-dialog>
-
-        <div class="profile-tabs">
-            <button type="button" class="tab-chip" :class="{ active: activeTab==='products' }" @click="activeTab='products'">
-                <el-icon><Goods/></el-icon>
-                <span>我的商品</span>
-            </button>
-            <button type="button" class="tab-chip" :class="{ active: activeTab==='favorites' }" @click="activeTab='favorites'">
-                <el-icon><Star/></el-icon>
-                <span>我的收藏</span>
-            </button>
-        </div>
-
-        <section class="content-card">
-            <div class="content-head">
-                <div>
-                    <div class="content-title">{{ activeTab === "products" ? "我的商品" : "我的收藏" }}</div>
-                    <div class="content-subtitle">{{ activeTab === "products" ? "管理你发布的商品状态与编辑入口" : "查看并整理你关注过的商品" }}</div>
-                </div>
-            </div>
-
-            <div class="tab-content">
-            <div v-if="activeTab==='products'">
-                <div v-if="myProducts.length>0" class="my-product-list">
-                    <div v-for="p in myProducts" :key="p.id" class="my-product-item" @click="$router.push('/product/' + p.id)">
-                        <img :src="getImg(p)" class="mp-thumb"/>
-                        <div class="mp-info">
-                            <div class="mp-top">
-                                <div class="mp-title">{{ p.title }}</div>
-                                <el-tag :type="getStatusMeta(p.status).type" size="small">{{ getStatusMeta(p.status).label }}</el-tag>
-                            </div>
-                            <div class="mp-price">&yen;{{ p.price }}</div>
-                            <div class="mp-actions">
-                                <el-button size="small" plain @click.stop="goEdit(p)">编辑</el-button>
-                                <el-button v-if="p.status==='active'" size="small" type="success" plain @click.stop="handleMarkSold(p)">标记售出</el-button>
-                                <el-button v-if="p.status==='active'" size="small" type="warning" plain @click.stop="handleTakeDown(p)">下架</el-button>
-                                <el-button v-if="p.status==='inactive'" size="small" type="success" plain @click.stop="handleRelist(p)">上架</el-button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <el-empty v-else description="还没有发布商品" :image-size="88"/>
-            </div>
-
-            <div v-else>
-                <div v-if="favoriteProducts.length>0" class="my-product-list">
-                    <div v-for="p in favoriteProducts" :key="p.id" class="my-product-item" @click="$router.push('/product/' + p.id)">
-                        <img :src="getImg(p)" class="mp-thumb"/>
-                        <div class="mp-info">
-                            <div class="mp-top">
-                                <div class="mp-title">{{ p.title }}</div>
-                                <el-tag :type="getStatusMeta(p.status).type" size="small">{{ getStatusMeta(p.status).label }}</el-tag>
-                            </div>
-                            <div class="mp-price">&yen;{{ p.price }}</div>
-                            <div class="mp-meta">
-                                <span>{{ p.seller_name }}</span>
-                                <span v-if="p.campus">{{ p.campus }}</span>
-                            </div>
-                            <div class="mp-actions">
-                                <el-button size="small" type="warning" plain @click.stop="handleUnfavorite(p)">取消收藏</el-button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <el-empty v-else description="还没有收藏商品" :image-size="88"/>
-            </div>
-            </div>
-        </section>
-
-        <div class="logout-section">
-            <el-button type="danger" @click="handleLogout" style="width: 100%">退出登录</el-button>
-        </div>
     </div>
-</div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "../utils/message";
 import { Goods, Star } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
-import { resetPassword, updateMe } from "../api/auth";
+import { logout as logoutApi, resetPassword, updateMe } from "../api/auth";
 import { bootstrapAdmin } from "../api/reports";
 import { getMyFavorites, getMyProducts, toggleFavorite, updateProduct } from "../api/products";
 import { getProductStatusMeta } from "../utils/product";
 import { CAMPUS_OPTIONS } from "../utils/options";
 
+const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
+
 const showEdit = ref(false);
 const showPasswordDialog = ref(false);
 const saving = ref(false);
@@ -208,24 +264,32 @@ const activeTab = ref("products");
 const myProducts = ref([]);
 const favoriteProducts = ref([]);
 const bootstrappingAdmin = ref(false);
+
 const campusOptions = CAMPUS_OPTIONS;
 const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "" });
 const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPassword: "" });
+
+const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "未登录用户");
+const profileInitial = computed(() => (displayName.value || "U")[0]);
 const defImg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3C/svg%3E";
 
-function getImg(p) {
-    return (p.images && p.images.length) ? p.images[0] : defImg;
+function getImg(product) {
+    return product.images && product.images.length ? product.images[0] : defImg;
 }
 
 function getStatusMeta(status) {
     return getProductStatusMeta(status);
 }
 
-function initEdit() {
+function syncEditForm() {
     editForm.nickname = userStore.user?.nickname || "";
     editForm.campus = userStore.user?.campus || "";
     editForm.bio = userStore.user?.bio || "";
     editForm.phone = userStore.user?.phone || "";
+}
+
+function resetEditForm() {
+    syncEditForm();
 }
 
 function resetPasswordFormState() {
@@ -234,8 +298,17 @@ function resetPasswordFormState() {
     passwordForm.confirmPassword = "";
 }
 
+function openEditDialog() {
+    syncEditForm();
+    showEdit.value = true;
+}
+
 function goAdminReports() {
     router.push("/admin/reports");
+}
+
+function goAdminPasswordResets() {
+    router.push("/admin/password-resets");
 }
 
 async function handleSave() {
@@ -243,9 +316,9 @@ async function handleSave() {
     try {
         const response = await updateMe(editForm);
         userStore.updateUser(response.data);
-        ElMessage.success("资料保存成功");
+        ElMessage.success("资料已保存");
         showEdit.value = false;
-    } catch {} finally {
+    } finally {
         saving.value = false;
     }
 }
@@ -263,22 +336,29 @@ async function handleResetPassword() {
         ElMessage.warning("两次输入的新密码不一致");
         return;
     }
+
     passwordSaving.value = true;
     try {
-        await resetPassword(passwordForm.currentPassword, passwordForm.newPassword);
+        const response = await resetPassword(passwordForm.currentPassword, passwordForm.newPassword);
+        if (response.data) {
+            userStore.updateUser(response.data);
+        } else {
+            userStore.updateUser({ must_change_password: false });
+        }
         ElMessage.success("密码修改成功");
         showPasswordDialog.value = false;
         resetPasswordFormState();
-    } catch {} finally {
+        if (route.query.changePassword === "1") {
+            await router.replace("/profile");
+        }
+    } finally {
         passwordSaving.value = false;
     }
 }
 
 async function handleBootstrapAdmin() {
     try {
-        await ElMessageBox.confirm("仅在系统还没有管理员时可初始化当前账号为管理员。是否继续？", "管理员初始化", {
-            type: "warning"
-        });
+        await ElMessageBox.confirm("系统将把当前账号初始化为管理员，是否继续？", "管理员初始化", { type: "warning" });
     } catch {
         return;
     }
@@ -289,7 +369,6 @@ async function handleBootstrapAdmin() {
         userStore.setAuth(response.data.token, response.data.user);
         ElMessage.success("管理员初始化成功");
         router.push("/admin/reports");
-    } catch {
     } finally {
         bootstrappingAdmin.value = false;
     }
@@ -297,72 +376,104 @@ async function handleBootstrapAdmin() {
 
 async function fetchMyProducts() {
     try {
-        myProducts.value = (await getMyProducts()).data.list;
-    } catch {}
+        const response = await getMyProducts();
+        myProducts.value = response.data.list || [];
+    } catch {
+        myProducts.value = [];
+    }
 }
 
 async function fetchMyFavorites() {
     try {
-        favoriteProducts.value = (await getMyFavorites()).data.list;
-    } catch {}
+        const response = await getMyFavorites();
+        favoriteProducts.value = response.data.list || [];
+    } catch {
+        favoriteProducts.value = [];
+    }
 }
 
-function goEdit(p) {
-    router.push("/publish/" + p.id);
+function goEdit(product) {
+    router.push("/publish/" + product.id);
 }
 
-async function handleMarkSold(p) {
+async function handleMarkSold(product) {
     try {
-        await ElMessageBox.confirm(`确认将《${p.title}》标记为售出？`, "操作确认", { type: "warning" });
-        await updateProduct(p.id, { status: "sold" });
+        await ElMessageBox.confirm(`确认将《${product.title}》标记为已售出吗？`, "操作确认", { type: "warning" });
+        await updateProduct(product.id, { status: "sold" });
         ElMessage.success("已标记为售出");
         await fetchMyProducts();
-    } catch {}
+    } catch {
+        // ignore cancel
+    }
 }
 
-async function handleTakeDown(p) {
+async function handleTakeDown(product) {
     try {
-        await ElMessageBox.confirm(`确认将《${p.title}》下架？`, "操作确认", { type: "warning" });
-        await updateProduct(p.id, { status: "inactive" });
+        await ElMessageBox.confirm(`确认将《${product.title}》下架吗？`, "操作确认", { type: "warning" });
+        await updateProduct(product.id, { status: "inactive" });
         ElMessage.success("已下架");
         await fetchMyProducts();
-    } catch {}
+    } catch {
+        // ignore cancel
+    }
 }
 
-async function handleRelist(p) {
+async function handleRelist(product) {
     try {
-        await ElMessageBox.confirm(`确认将《${p.title}》重新上架？`, "操作确认", { type: "warning" });
-        await updateProduct(p.id, { status: "active" });
+        await ElMessageBox.confirm(`确认将《${product.title}》重新上架吗？`, "操作确认", { type: "warning" });
+        await updateProduct(product.id, { status: "active" });
         ElMessage.success("已重新上架");
         await fetchMyProducts();
-    } catch {}
+    } catch {
+        // ignore cancel
+    }
 }
 
-async function handleUnfavorite(p) {
+async function handleUnfavorite(product) {
     try {
-        await ElMessageBox.confirm(`确认取消收藏《${p.title}》？`, "操作确认", { type: "warning" });
-        await toggleFavorite(p.id);
+        await ElMessageBox.confirm(`确认取消收藏《${product.title}》吗？`, "操作确认", { type: "warning" });
+        await toggleFavorite(product.id);
         ElMessage.success("已取消收藏");
         await fetchMyFavorites();
-    } catch {}
+    } catch {
+        // ignore cancel
+    }
 }
 
-function handleLogout() {
+async function handleLogout() {
+    try {
+        await logoutApi();
+    } catch {
+        // logout is local-token based, backend failure should not block sign-out
+    }
     userStore.logout();
     router.push("/home");
     ElMessage.success("已退出登录");
 }
 
 onMounted(() => {
+    syncEditForm();
     fetchMyProducts();
     fetchMyFavorites();
-    initEdit();
+    if (route.query.changePassword === "1") {
+        showPasswordDialog.value = true;
+    }
+});
+
+watch(() => route.query.changePassword, (value) => {
+    if (value === "1") {
+        showPasswordDialog.value = true;
+    }
 });
 </script>
 
 <style scoped>
 .profile-page {
     padding-top: 8px;
+}
+
+.profile-shell {
+    max-width: 680px;
 }
 
 .profile-hero {
@@ -381,10 +492,6 @@ onMounted(() => {
     align-items: center;
     gap: 18px;
     margin-bottom: 18px;
-}
-
-.avatar-wrap {
-    flex-shrink: 0;
 }
 
 .profile-info {
@@ -408,52 +515,81 @@ onMounted(() => {
 }
 
 .profile-info p {
-    font-size: 13px;
-    color: var(--primary);
     margin-top: 6px;
+    font-size: 13px;
     font-weight: 700;
+    color: var(--primary);
 }
 
 .profile-meta {
     display: block;
+    max-width: 360px;
     margin-top: 10px;
     font-size: 13px;
-    color: var(--text-secondary);
     line-height: 1.6;
-    max-width: 360px;
+    color: var(--text-secondary);
 }
 
 .profile-actions {
     display: flex;
-    gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 8px;
     align-self: flex-start;
 }
 
 .profile-admin-actions {
     display: flex;
-    gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 8px;
     margin-top: 10px;
+}
+
+.security-banner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 14px;
+    padding: 16px 18px;
+    border-radius: 24px;
+    background: rgba(255, 244, 214, 0.9);
+    border: 1px solid rgba(228, 191, 94, 0.28);
+}
+
+.security-banner__copy {
+    display: grid;
+    gap: 6px;
+}
+
+.security-banner__copy strong {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.security-banner__copy span {
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-secondary);
 }
 
 .profile-highlights {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+    margin-top: 14px;
 }
 
 .highlight-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 16px 18px;
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.78);
     border: 1px solid rgba(194, 199, 208, 0.2);
     box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
 .highlight-label {
@@ -470,14 +606,13 @@ onMounted(() => {
 
 .profile-tabs {
     display: flex;
-    gap: 10px;
     flex-wrap: wrap;
+    gap: 10px;
     margin-bottom: 12px;
 }
 
 .tab-chip {
     appearance: none;
-    -webkit-appearance: none;
     border: none;
     background: rgba(232, 238, 249, 0.9);
     border-radius: 999px;
@@ -499,12 +634,12 @@ onMounted(() => {
 }
 
 .content-card {
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 32px;
+    margin-bottom: 12px;
     padding: 20px;
+    border-radius: 32px;
+    background: rgba(255, 255, 255, 0.9);
     border: 1px solid rgba(194, 199, 208, 0.2);
     box-shadow: var(--shadow);
-    margin-bottom: 12px;
 }
 
 .content-head {
@@ -520,12 +655,8 @@ onMounted(() => {
 .content-subtitle {
     margin-top: 6px;
     font-size: 12px;
-    color: var(--text-tertiary);
     line-height: 1.6;
-}
-
-.tab-content {
-    min-height: 320px;
+    color: var(--text-tertiary);
 }
 
 .my-product-list {
@@ -537,11 +668,11 @@ onMounted(() => {
 .my-product-item {
     display: flex;
     gap: 14px;
-    cursor: pointer;
     padding: 12px;
     border-radius: 24px;
     border: 1px solid rgba(194, 199, 208, 0.18);
     background: rgba(240, 242, 248, 0.52);
+    cursor: pointer;
     transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
@@ -554,10 +685,10 @@ onMounted(() => {
 .mp-thumb {
     width: 76px;
     height: 76px;
+    flex-shrink: 0;
     border-radius: 18px;
     object-fit: cover;
     background: var(--bg-tertiary);
-    flex-shrink: 0;
 }
 
 .mp-info {
@@ -575,32 +706,32 @@ onMounted(() => {
 .mp-title {
     font-size: 15px;
     font-weight: 700;
-    white-space: nowrap;
     overflow: hidden;
+    white-space: nowrap;
     text-overflow: ellipsis;
 }
 
 .mp-price {
+    margin: 8px 0;
     font-size: 18px;
     font-weight: 700;
     color: var(--danger);
-    margin: 8px 0 8px;
 }
 
 .mp-meta {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: 8px;
+    margin-bottom: 8px;
     font-size: 12px;
     color: var(--text-tertiary);
-    margin-bottom: 8px;
-    flex-wrap: wrap;
 }
 
 .mp-actions {
     display: flex;
-    gap: 8px;
     flex-wrap: wrap;
+    gap: 8px;
 }
 
 .logout-section {
@@ -622,13 +753,14 @@ onMounted(() => {
         font-size: 24px;
     }
 
-    .profile-actions {
+    .profile-actions,
+    .profile-admin-actions {
         width: 100%;
         justify-content: flex-start;
     }
 
-    .profile-admin-actions {
-        justify-content: flex-start;
+    .security-banner {
+        flex-direction: column;
     }
 
     .profile-highlights {

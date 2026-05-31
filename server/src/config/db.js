@@ -1,100 +1,125 @@
-const { Pool, types } = require("pg");
+const mysql = require("mysql2/promise");
+const { loadAppEnv } = require("./loadEnv");
 
-types.setTypeParser(20, (value) => Number(value));
-types.setTypeParser(1700, (value) => Number(value));
+loadAppEnv();
 
-let pool = null;
+let poolPromise = null;
 let db = null;
-
-function convertPlaceholders(sql) {
-    let result = "";
-    let index = 1;
-    let singleQuoted = false;
-    let doubleQuoted = false;
-
-    for (let cursor = 0; cursor < sql.length; cursor += 1) {
-        const char = sql[cursor];
-        const next = sql[cursor + 1];
-
-        if (char === "'" && !doubleQuoted) {
-            result += char;
-            if (singleQuoted && next === "'") {
-                result += next;
-                cursor += 1;
-                continue;
-            }
-            singleQuoted = !singleQuoted;
-            continue;
-        }
-
-        if (char === "\"" && !singleQuoted) {
-            doubleQuoted = !doubleQuoted;
-            result += char;
-            continue;
-        }
-
-        if (char === "?" && !singleQuoted && !doubleQuoted) {
-            result += `$${index}`;
-            index += 1;
-            continue;
-        }
-
-        result += char;
-    }
-
-    return result;
-}
 
 function normalizeSql(sql) {
     return String(sql || "").trim().replace(/;+\s*$/, "");
 }
 
-function detectWriteType(sql) {
-    const normalized = normalizeSql(sql).toUpperCase();
-    if (normalized.startsWith("INSERT")) {
-        return "insert";
-    }
-    if (normalized.startsWith("UPDATE")) {
-        return "update";
-    }
-    if (normalized.startsWith("DELETE")) {
-        return "delete";
-    }
-    return "other";
+function convertPlaceholders(sql) {
+    return normalizeSql(sql);
 }
 
-function appendReturningId(sql) {
-    const normalized = normalizeSql(sql);
-    if (!normalized) {
-        return normalized;
-    }
-    if (/\bRETURNING\b/i.test(normalized)) {
-        return normalized;
-    }
-    return `${normalized} RETURNING id`;
+function parseDatabaseUrl(databaseUrl) {
+    const url = new URL(databaseUrl);
+    return {
+        host: url.hostname || "127.0.0.1",
+        port: url.port ? Number(url.port) : 3306,
+        user: decodeURIComponent(url.username || "root"),
+        password: decodeURIComponent(url.password || ""),
+        database: decodeURIComponent(url.pathname.replace(/^\/+/, "")),
+        waitForConnections: true,
+        connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+        multipleStatements: true,
+        charset: "utf8mb4",
+        timezone: "Z"
+    };
 }
 
 function buildPoolConfig() {
     if (process.env.DATABASE_URL) {
-        return {
-            connectionString: process.env.DATABASE_URL,
-            ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: false } : undefined
-        };
+        return parseDatabaseUrl(process.env.DATABASE_URL);
     }
 
     return {
-        host: process.env.PGHOST || "127.0.0.1",
-        port: Number(process.env.PGPORT || 5432),
-        user: process.env.PGUSER || "postgres",
-        password: process.env.PGPASSWORD || "postgres",
-        database: process.env.PGDATABASE || "campus_market",
-        ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: false } : undefined
+        host: process.env.MYSQL_HOST || process.env.PGHOST || "127.0.0.1",
+        port: Number(process.env.MYSQL_PORT || process.env.PGPORT || 3306),
+        user: process.env.MYSQL_USER || process.env.PGUSER || "root",
+        password: process.env.MYSQL_PASSWORD || process.env.PGPASSWORD || "",
+        database: process.env.MYSQL_DATABASE || process.env.PGDATABASE || "campus_market",
+        waitForConnections: true,
+        connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+        multipleStatements: true,
+        charset: "utf8mb4",
+        timezone: "Z"
     };
+}
+
+function escapeIdentifier(identifier) {
+    return "`" + String(identifier).replace(/`/g, "``") + "`";
+}
+
+async function ensureDatabaseExists(config) {
+    const databaseName = config.database;
+    if (!databaseName) {
+        throw new Error("MySQL database name is missing. Set DATABASE_URL or MYSQL_DATABASE.");
+    }
+
+    const connection = await mysql.createConnection({
+        host: config.host,
+        port: config.port,
+        user: config.user,
+        password: config.password,
+        multipleStatements: true,
+        charset: "utf8mb4",
+        timezone: "Z"
+    });
+
+    try {
+        await connection.query(
+            `CREATE DATABASE IF NOT EXISTS ${escapeIdentifier(databaseName)} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+        );
+    } finally {
+        await connection.end();
+    }
+}
+
+async function createPoolOnce() {
+    if (!poolPromise) {
+        const config = buildPoolConfig();
+        poolPromise = (async () => {
+            await ensureDatabaseExists(config);
+            return mysql.createPool(config);
+        })();
+    }
+
+    return poolPromise;
 }
 
 async function executeQuery(executor, sql, params = []) {
     const text = convertPlaceholders(sql);
-    return executor.query(text, params);
+    const [result] = await executor.query(text, params);
+
+    if (Array.isArray(result)) {
+        return {
+            rows: result,
+            rowCount: result.length,
+            insertId: null
+        };
+    }
+
+    return {
+        rows: [],
+        rowCount: result?.affectedRows || 0,
+        insertId: result?.insertId || null
+    };
+}
+
+function getExecutor() {
+    return {
+        async query(sql, params) {
+            const pool = await createPoolOnce();
+            return pool.query(sql, params);
+        },
+        async getConnection() {
+            const pool = await createPoolOnce();
+            return pool.getConnection();
+        }
+    };
 }
 
 function createDb(executor) {
@@ -110,55 +135,52 @@ function createDb(executor) {
                     return result.rows;
                 },
                 async run(...params) {
-                    const writeType = detectWriteType(sql);
-                    const statement = writeType === "insert" ? appendReturningId(sql) : normalizeSql(sql);
-                    const result = await executeQuery(executor, statement, params);
+                    const result = await executeQuery(executor, sql, params);
                     return {
                         changes: result.rowCount || 0,
-                        lastInsertRowid: result.rows[0]?.id || null
+                        lastInsertRowid: result.insertId || null
                     };
                 }
             };
         },
         async exec(sql) {
-            return executor.query(sql);
+            const executorWithPool = getExecutor();
+            return executorWithPool.query(sql);
         },
         async transaction(callback) {
-            const client = await pool.connect();
-            const txDb = createDb(client);
+            const connection = await (await createPoolOnce()).getConnection();
+            const txDb = createDb(connection);
             try {
-                await client.query("BEGIN");
+                await connection.beginTransaction();
                 const result = await callback(txDb);
-                await client.query("COMMIT");
+                await connection.commit();
                 return result;
             } catch (error) {
-                await client.query("ROLLBACK");
+                await connection.rollback();
                 throw error;
             } finally {
-                client.release();
+                connection.release();
             }
         }
     };
 }
 
 function getPool() {
-    if (!pool) {
-        pool = new Pool(buildPoolConfig());
-    }
-    return pool;
+    return createPoolOnce();
 }
 
 function getDb() {
     if (!db) {
-        db = createDb(getPool());
+        db = createDb(getExecutor());
     }
     return db;
 }
 
 async function closeDb() {
-    if (pool) {
+    if (poolPromise) {
+        const pool = await poolPromise;
         await pool.end();
-        pool = null;
+        poolPromise = null;
         db = null;
     }
 }

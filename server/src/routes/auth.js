@@ -5,6 +5,18 @@ const { generateToken, authMiddleware } = require("../middleware/auth");
 
 const router = express.Router();
 
+function normalizeText(value) {
+    return String(value || "").trim();
+}
+
+function normalizePhone(value) {
+    return normalizeText(value).replace(/\s+/g, "");
+}
+
+function isValidPhone(phone) {
+    return /^1\d{10}$/.test(phone);
+}
+
 async function withCredit(db, user) {
     const credit = await db.prepare(`
         SELECT
@@ -17,6 +29,7 @@ async function withCredit(db, user) {
     return {
         ...user,
         is_admin: !!user.is_admin,
+        must_change_password: !!user.must_change_password,
         credit: {
             review_count: credit.review_count || 0,
             rating_avg: Number(credit.rating_avg || 0)
@@ -25,13 +38,31 @@ async function withCredit(db, user) {
 }
 
 function getPublicUserFields() {
-    return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, created_at";
+    return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, must_change_password, created_at";
+}
+
+async function getPublicUserById(db, userId) {
+    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(userId);
+    if (!user) {
+        return null;
+    }
+    return withCredit(db, user);
 }
 
 router.post("/register", async (req, res) => {
-    const { username, password, nickname } = req.body;
+    const username = normalizeText(req.body.username);
+    const password = String(req.body.password || "");
+    const nickname = normalizeText(req.body.nickname) || username;
+    const phone = normalizePhone(req.body.phone);
+
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
+    }
+    if (!phone) {
+        return res.json({ code: 400, message: "请填写手机号" });
+    }
+    if (!isValidPhone(phone)) {
+        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
     }
     if (password.length < 6) {
         return res.json({ code: 400, message: "密码至少需要 6 位" });
@@ -44,23 +75,25 @@ router.post("/register", async (req, res) => {
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await db.prepare(`
-        INSERT INTO users (username, password_hash, nickname)
-        VALUES (?, ?, ?)
-    `).run(username, passwordHash, nickname || username);
+        INSERT INTO users (username, password_hash, nickname, phone)
+        VALUES (?, ?, ?, ?)
+    `).run(username, passwordHash, nickname, phone);
 
-    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(result.lastInsertRowid);
+    const user = await getPublicUserById(db, result.lastInsertRowid);
     return res.json({
         code: 200,
         message: "注册成功",
         data: {
-            user: await withCredit(db, user),
+            user,
             token: generateToken(user)
         }
     });
 });
 
 router.post("/login", async (req, res) => {
-    const { username, password } = req.body;
+    const username = normalizeText(req.body.username);
+    const password = String(req.body.password || "");
+
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
     }
@@ -82,14 +115,18 @@ router.post("/login", async (req, res) => {
     });
 });
 
+router.post("/logout", authMiddleware, async (req, res) => {
+    return res.json({ code: 200, message: "已退出登录" });
+});
+
 router.get("/me", authMiddleware, async (req, res) => {
     const db = getDb();
-    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
+    const user = await getPublicUserById(db, req.user.id);
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }
 
-    return res.json({ code: 200, data: await withCredit(db, user) });
+    return res.json({ code: 200, data: user });
 });
 
 router.put("/me", authMiddleware, async (req, res) => {
@@ -100,23 +137,27 @@ router.put("/me", authMiddleware, async (req, res) => {
 
     if (nickname !== undefined) {
         fields.push("nickname=?");
-        values.push(nickname);
+        values.push(normalizeText(nickname));
     }
     if (avatar_url !== undefined) {
         fields.push("avatar_url=?");
-        values.push(avatar_url);
+        values.push(normalizeText(avatar_url));
     }
     if (campus !== undefined) {
         fields.push("campus=?");
-        values.push(campus);
+        values.push(normalizeText(campus));
     }
     if (bio !== undefined) {
         fields.push("bio=?");
-        values.push(bio);
+        values.push(normalizeText(bio));
     }
     if (phone !== undefined) {
+        const normalizedPhone = normalizePhone(phone);
+        if (normalizedPhone && !isValidPhone(normalizedPhone)) {
+            return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+        }
         fields.push("phone=?");
-        values.push(phone);
+        values.push(normalizedPhone);
     }
 
     if (!fields.length) {
@@ -127,16 +168,18 @@ router.put("/me", authMiddleware, async (req, res) => {
     values.push(req.user.id);
 
     await db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id=?`).run(...values);
-    const user = await db.prepare(`SELECT ${getPublicUserFields()} FROM users WHERE id=?`).get(req.user.id);
-    return res.json({ code: 200, message: "资料已更新", data: await withCredit(db, user) });
+    const user = await getPublicUserById(db, req.user.id);
+    return res.json({ code: 200, message: "资料已更新", data: user });
 });
 
 router.post("/reset-password", authMiddleware, async (req, res) => {
-    const { current_password, new_password } = req.body;
-    if (!current_password || !new_password) {
+    const currentPassword = String(req.body.current_password || "");
+    const newPassword = String(req.body.new_password || "");
+
+    if (!currentPassword || !newPassword) {
         return res.json({ code: 400, message: "请填写完整的密码信息" });
     }
-    if (new_password.length < 6) {
+    if (newPassword.length < 6) {
         return res.json({ code: 400, message: "新密码至少需要 6 位" });
     }
 
@@ -145,16 +188,122 @@ router.post("/reset-password", authMiddleware, async (req, res) => {
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }
-    if (!bcrypt.compareSync(current_password, user.password_hash)) {
+    if (!bcrypt.compareSync(currentPassword, user.password_hash)) {
         return res.json({ code: 400, message: "当前密码不正确" });
     }
-    if (bcrypt.compareSync(new_password, user.password_hash)) {
+    if (bcrypt.compareSync(newPassword, user.password_hash)) {
         return res.json({ code: 400, message: "新密码不能与当前密码相同" });
     }
 
-    const nextHash = bcrypt.hashSync(new_password, 10);
-    await db.prepare("UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(nextHash, req.user.id);
-    return res.json({ code: 200, message: "密码修改成功" });
+    const nextHash = bcrypt.hashSync(newPassword, 10);
+    await db.prepare(`
+        UPDATE users
+        SET password_hash=?, must_change_password=0, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    `).run(nextHash, req.user.id);
+
+    const publicUser = await getPublicUserById(db, req.user.id);
+    return res.json({
+        code: 200,
+        message: "密码修改成功",
+        data: publicUser
+    });
+});
+
+router.post("/forgot-password/request", async (req, res) => {
+    const username = normalizeText(req.body.username);
+    const phone = normalizePhone(req.body.phone);
+    const reason = normalizeText(req.body.reason);
+
+    if (!username || !phone) {
+        return res.json({ code: 400, message: "请填写用户名和手机号" });
+    }
+    if (!isValidPhone(phone)) {
+        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+    }
+    if (reason.length > 500) {
+        return res.json({ code: 400, message: "情况说明不能超过 500 字" });
+    }
+
+    const db = getDb();
+    const user = await db.prepare("SELECT id, username, nickname, phone FROM users WHERE username=?").get(username);
+    if (!user) {
+        return res.json({ code: 404, message: "账号不存在" });
+    }
+    if (user.phone && normalizePhone(user.phone) !== phone) {
+        return res.json({ code: 400, message: "手机号与账号绑定信息不一致" });
+    }
+
+    const pendingRequest = await db.prepare(`
+        SELECT id
+        FROM password_reset_requests
+        WHERE user_id=? AND status IN ('pending', 'reviewing')
+        ORDER BY id DESC
+        LIMIT 1
+    `).get(user.id);
+    if (pendingRequest) {
+        return res.json({ code: 400, message: "你已有待处理的找回申请，请先等待处理结果" });
+    }
+
+    const result = await db.prepare(`
+        INSERT INTO password_reset_requests (
+            user_id,
+            username_snapshot,
+            request_phone,
+            reason,
+            status
+        ) VALUES (?, ?, ?, ?, 'pending')
+    `).run(user.id, user.username, phone, reason);
+
+    const requestInfo = await db.prepare(`
+        SELECT id, user_id, username_snapshot, request_phone, reason, status, resolution_note, created_at, handled_at
+        FROM password_reset_requests
+        WHERE id=?
+    `).get(result.lastInsertRowid);
+
+    return res.json({
+        code: 200,
+        message: "找回申请已提交，请等待管理员人工核验",
+        data: requestInfo
+    });
+});
+
+router.post("/forgot-password/status", async (req, res) => {
+    const username = normalizeText(req.body.username);
+    const phone = normalizePhone(req.body.phone);
+
+    if (!username || !phone) {
+        return res.json({ code: 400, message: "请填写用户名和手机号" });
+    }
+
+    const db = getDb();
+    const requestInfo = await db.prepare(`
+        SELECT
+            pr.id,
+            pr.user_id,
+            pr.username_snapshot,
+            pr.request_phone,
+            pr.reason,
+            pr.status,
+            pr.resolution_note,
+            pr.created_at,
+            pr.handled_at,
+            handler.nickname AS handled_by_name
+        FROM password_reset_requests pr
+        LEFT JOIN users handler ON handler.id=pr.handled_by
+        WHERE pr.username_snapshot=? AND pr.request_phone=?
+        ORDER BY pr.id DESC
+        LIMIT 1
+    `).get(username, phone);
+
+    if (!requestInfo) {
+        return res.json({ code: 404, message: "没有找到对应的找回申请" });
+    }
+
+    return res.json({
+        code: 200,
+        data: requestInfo
+    });
 });
 
 module.exports = router;

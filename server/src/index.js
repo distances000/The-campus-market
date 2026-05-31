@@ -1,11 +1,15 @@
 require("express-async-errors");
 const http = require("http");
+const { loadAppEnv } = require("./config/loadEnv");
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const { initDatabase } = require("./models/init");
 const { attachRealtimeServer } = require("./utils/realtime");
 const app = express();
+
+loadAppEnv();
+
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -36,6 +40,10 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
+    if (error && error.code === "ECONNREFUSED") {
+        console.error("Failed to bootstrap server: MySQL connection refused.");
+        console.error("Please start MySQL or set DATABASE_URL in server/.env or .env before running the server.");
+    }
     console.error("Failed to bootstrap server:", error);
     process.exit(1);
 });

@@ -1,16 +1,14 @@
-<template>
+﻿<template>
     <div class="admin-page">
         <div class="page-container admin-container">
             <section class="admin-hero">
                 <div class="hero-copy">
-                    <div class="eyebrow">运营后台</div>
+                    <div class="eyebrow">内容治理</div>
                     <h1>举报管理</h1>
-                    <p>
-                        处理商品和帖子举报，更新处理状态，并在必要时执行下架或删除操作。
-                    </p>
+                    <p>处理商品和帖子举报，更新处理状态，并在需要时执行下架商品或删除帖子。</p>
                 </div>
                 <div class="hero-actions">
-                    <el-button plain :loading="bootstrapping" @click="handleBootstrapHint">首次使用说明</el-button>
+                    <el-button plain @click="goPasswordResets">查看密码重置</el-button>
                     <el-button type="primary" :loading="loading" @click="fetchReports">刷新列表</el-button>
                 </div>
             </section>
@@ -35,11 +33,7 @@
                         placeholder="搜索标题、摘要或举报人"
                         clearable
                         @keyup.enter="handleSearch"
-                    >
-                        <template #prefix>
-                            <span class="search-prefix">搜</span>
-                        </template>
-                    </el-input>
+                    />
                     <div class="filter-actions">
                         <el-button @click="resetFilters">重置</el-button>
                         <el-button type="primary" :loading="loading" @click="handleSearch">筛选</el-button>
@@ -48,13 +42,7 @@
             </section>
 
             <section class="table-card">
-                <el-table
-                    v-loading="loading"
-                    :data="reports"
-                    row-key="id"
-                    highlight-current-row
-                    @row-click="openDetail"
-                >
+                <el-table v-loading="loading" :data="reports" row-key="id" highlight-current-row @row-click="openDetail">
                     <el-table-column prop="id" label="ID" width="86" />
                     <el-table-column label="目标" min-width="220">
                         <template #default="{ row }">
@@ -68,14 +56,10 @@
                         </template>
                     </el-table-column>
                     <el-table-column label="举报人" width="150">
-                        <template #default="{ row }">
-                            {{ row.reporter_name || "未知用户" }}
-                        </template>
+                        <template #default="{ row }">{{ row.reporter_name || "未知用户" }}</template>
                     </el-table-column>
                     <el-table-column label="原因" width="120">
-                        <template #default="{ row }">
-                            {{ reasonLabel(row.reason) }}
-                        </template>
+                        <template #default="{ row }">{{ reasonLabel(row.reason) }}</template>
                     </el-table-column>
                     <el-table-column label="状态" width="120">
                         <template #default="{ row }">
@@ -85,9 +69,7 @@
                         </template>
                     </el-table-column>
                     <el-table-column label="时间" width="170">
-                        <template #default="{ row }">
-                            {{ formatTime(row.created_at) }}
-                        </template>
+                        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
                     </el-table-column>
                     <el-table-column label="操作" width="110" fixed="right">
                         <template #default="{ row }">
@@ -123,7 +105,7 @@
                     <div class="drawer-meta">
                         <span>举报人：{{ detailReport.reporter_name || "未知用户" }}</span>
                         <span>目标类型：{{ targetTypeLabel(detailReport.target_type) }}</span>
-                        <span>目标归属：{{ detailReport.target_owner_name || "无" }}</span>
+                        <span>目标归属：{{ detailReport.target_owner_name || "未知" }}</span>
                         <span>创建时间：{{ formatTime(detailReport.created_at) }}</span>
                     </div>
                     <p class="drawer-excerpt">{{ detailReport.snapshot_excerpt || "暂无摘要" }}</p>
@@ -139,7 +121,7 @@
                     <div class="drawer-meta">
                         <span>当前动作：{{ actionLabel(detailReport.handled_action) }}</span>
                         <span>处理人：{{ detailReport.handled_by_name || "未处理" }}</span>
-                        <span>处理时间：{{ formatTime(detailReport.handled_at) || "未处理" }}</span>
+                        <span>处理时间：{{ detailReport.handled_at ? formatTime(detailReport.handled_at) : "未处理" }}</span>
                     </div>
                     <p class="drawer-text">{{ detailReport.resolution_note || "暂无处理说明" }}</p>
                 </section>
@@ -180,9 +162,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "../utils/message";
-import { bootstrapAdmin, getAdminReport, getAdminReports, updateAdminReport } from "../api/reports";
+import { useRouter } from "vue-router";
+import { ElMessage } from "../utils/message";
+import { getAdminReport, getAdminReports, updateAdminReport } from "../api/admin";
 import { REPORT_REASON_MAP } from "../utils/report";
+
+const router = useRouter();
 
 const reports = ref([]);
 const total = ref(0);
@@ -192,7 +177,6 @@ const loading = ref(false);
 const saving = ref(false);
 const drawerVisible = ref(false);
 const detailReport = ref(null);
-const bootstrapping = ref(false);
 
 const filters = reactive({
     status: "",
@@ -257,7 +241,7 @@ function actionLabel(action) {
 
 function formatTime(value) {
     if (!value) {
-        return "";
+        return "暂无";
     }
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -274,6 +258,15 @@ const summaryCards = computed(() => {
         { label: "已完成", value: reports.value.filter((item) => item.status === "resolved" || item.status === "rejected").length }
     ];
 });
+
+function syncProcessForm(report) {
+    processForm.status = report.status || "reviewing";
+    processForm.handled_action = report.handled_action || "none";
+    processForm.resolution_note = report.resolution_note || "";
+    if (processForm.status !== "resolved") {
+        processForm.handled_action = "none";
+    }
+}
 
 async function fetchReports() {
     loading.value = true;
@@ -314,15 +307,6 @@ function handlePageSizeChange(nextPageSize) {
     fetchReports();
 }
 
-function syncProcessForm(report) {
-    processForm.status = report.status || "reviewing";
-    processForm.handled_action = report.handled_action || "none";
-    processForm.resolution_note = report.resolution_note || "";
-    if (processForm.status !== "resolved") {
-        processForm.handled_action = "none";
-    }
-}
-
 async function openDetail(report) {
     try {
         const response = await getAdminReport(report.id);
@@ -339,7 +323,7 @@ async function submitReport() {
         return;
     }
     if ((processForm.status === "resolved" || processForm.status === "rejected") && !processForm.resolution_note.trim()) {
-        ElMessage.warning("处理完成时必须填写说明");
+        ElMessage.warning("处理完成时必须填写处理说明");
         return;
     }
 
@@ -353,32 +337,25 @@ async function submitReport() {
         detailReport.value = response.data;
         syncProcessForm(response.data);
         reports.value = reports.value.map((item) => (item.id === response.data.id ? response.data : item));
-        ElMessage.success("举报处理已保存");
+        ElMessage.success("举报处理结果已更新");
         await fetchReports();
-    } catch {
     } finally {
         saving.value = false;
     }
 }
 
-async function handleBootstrapHint() {
-    try {
-        await ElMessageBox.confirm(
-            "如果系统里还没有管理员，可以在个人中心里点击“初始化管理员”。初始化成功后即可进入本页。",
-            "首次使用说明"
-        );
-    } catch {
-    }
+function goPasswordResets() {
+    router.push("/admin/password-resets");
 }
+
+watch(page, () => {
+    fetchReports();
+});
 
 watch(() => processForm.status, (status) => {
     if (status !== "resolved") {
         processForm.handled_action = "none";
     }
-});
-
-watch(page, () => {
-    fetchReports();
 });
 
 onMounted(fetchReports);
@@ -488,19 +465,6 @@ onMounted(fetchReports);
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-}
-
-.search-prefix {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: rgba(214, 227, 255, 0.9);
-    color: var(--primary);
-    font-size: 12px;
-    font-weight: 700;
 }
 
 .table-title {

@@ -1,4 +1,8 @@
+const { loadAppEnv } = require("../config/loadEnv");
 const jwt = require("jsonwebtoken");
+
+loadAppEnv();
+
 const JWT_SECRET = process.env.JWT_SECRET || "campus-market-secret-key-2026";
 
 function generateToken(user) {

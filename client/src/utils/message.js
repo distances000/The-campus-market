@@ -1,4 +1,4 @@
-let messageRoot = null;
+﻿let messageRoot = null;
 let noticeRoot = null;
 
 function ensureRoot() {

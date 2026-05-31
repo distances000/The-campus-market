@@ -1,4 +1,4 @@
-<template>
+﻿<template>
     <div class="home-page">
         <div class="category-bar">
             <div
@@ -83,7 +83,7 @@
         <el-empty v-else description="暂无商品" />
 
         <div v-if="hasMore && !isInitialLoading" class="load-more">
-            <el-button :loading="loading" @click="loadMore" size="large">加载更多</el-button>
+            <el-button :loading="loading" size="large" @click="loadMore">加载更多</el-button>
         </div>
     </div>
 </template>
@@ -92,8 +92,8 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { getProducts } from "../api/products";
-import { getProductStatusMeta } from "../utils/product";
 import { CAMPUS_OPTIONS, PRODUCT_CATEGORY_FILTER_OPTIONS } from "../utils/options";
+import { getProductStatusMeta } from "../utils/product";
 
 const route = useRoute();
 
@@ -171,7 +171,6 @@ function loadMore() {
 }
 
 onMounted(loadProducts);
-
 watch(() => route.query.keyword, reloadProducts);
 </script>
 
