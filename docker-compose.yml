@@ -1,0 +1,99 @@
+services:
+    postgres:
+        image: postgres:16-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB}
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+    server1:
+        &server_base
+        build:
+            context: ./server
+        restart: unless-stopped
+        environment:
+            NODE_ENV: production
+            PORT: 3000
+            JWT_SECRET: ${JWT_SECRET}
+            DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+        volumes:
+            - server_uploads:/app/uploads
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 10
+
+    server2:
+        <<: *server_base
+
+    frontend:
+        build:
+            context: ./client
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 10
+
+    nginx:
+        build:
+            context: .
+            dockerfile: deploy/nginx/Dockerfile
+        restart: unless-stopped
+        environment:
+            ENABLE_HTTPS: ${ENABLE_HTTPS}
+            DOMAINS: ${DOMAINS}
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - certbot_www:/var/www/certbot
+            - letsencrypt:/etc/letsencrypt
+        depends_on:
+            frontend:
+                condition: service_healthy
+            server1:
+                condition: service_healthy
+            server2:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+            interval: 20s
+            timeout: 5s
+            retries: 10
+
+    certbot:
+        image: certbot/certbot:latest
+        restart: unless-stopped
+        environment:
+            ENABLE_HTTPS: ${ENABLE_HTTPS}
+            DOMAINS: ${DOMAINS}
+            LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+            LETSENCRYPT_STAGING: ${LETSENCRYPT_STAGING}
+        entrypoint: ["/bin/sh", "/opt/certbot/entrypoint.sh"]
+        volumes:
+            - certbot_www:/var/www/certbot
+            - letsencrypt:/etc/letsencrypt
+            - ./deploy/certbot/entrypoint.sh:/opt/certbot/entrypoint.sh:ro
+        depends_on:
+            nginx:
+                condition: service_started
+
+volumes:
+    postgres_data:
+    server_uploads:
+    certbot_www:
+    letsencrypt:
