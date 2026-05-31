@@ -10,7 +10,7 @@
 </template>
 <script setup>
 import {ref,onMounted,onUnmounted,nextTick,watch} from "vue";import {useRoute,useRouter} from "vue-router";import {useUserStore} from "../stores/user";import {getConversation,sendMessage,getUserBrief} from "../api/messages";
-import { ArrowLeft } from "@element-plus/icons-vue";
+import { ArrowLeft } from "../components/element-icons";
 const route=useRoute(),router=useRouter(),userStore=useUserStore(),msgC=ref(null),messages=ref([]),inputText=ref(""),sending=ref(false),chatName=ref("聊天");
 let chatTimer=null;
 function fmt(t){return t?new Date(t).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}):"";}

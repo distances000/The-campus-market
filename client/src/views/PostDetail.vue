@@ -91,8 +91,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { ChatLineSquare, Pointer } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "../utils/message";
+import { ChatLineSquare, Pointer } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { createReport } from "../api/reports";
 import { commentPost, deletePost, getPost, likePost } from "../api/posts";

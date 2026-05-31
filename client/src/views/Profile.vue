@@ -168,8 +168,8 @@
 <script setup>
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { Goods, Star } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "../utils/message";
+import { Goods, Star } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { resetPassword, updateMe } from "../api/auth";
 import { getMyFavorites, getMyProducts, toggleFavorite, updateProduct } from "../api/products";

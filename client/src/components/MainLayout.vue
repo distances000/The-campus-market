@@ -69,7 +69,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import { Plus, Shop, ChatDotRound, Message, User, Search } from "@element-plus/icons-vue";
+import { Plus, Shop, ChatDotRound, Message, User, Search } from "./element-icons";
 import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "../stores/user";
 import { getUnreadCount } from "../api/messages";

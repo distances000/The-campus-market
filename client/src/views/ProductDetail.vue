@@ -124,8 +124,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { Picture, Star } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "../utils/message";
+import { Picture, Star } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { createReport } from "../api/reports";
 import { deleteProduct, getProduct, toggleFavorite, updateProduct } from "../api/products";

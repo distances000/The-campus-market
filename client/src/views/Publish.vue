@@ -52,12 +52,12 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage } from "../utils/message";
 import { useUserStore } from "../stores/user";
 import { createProduct, getProduct, updateProduct } from "../api/products";
 import { uploadImage } from "../api/upload";
 import { CAMPUS_OPTIONS, PRODUCT_CATEGORY_OPTIONS } from "../utils/options";
-import { Plus } from "@element-plus/icons-vue";
+import { Plus } from "../components/element-icons";
 
 const route = useRoute();
 const router = useRouter();

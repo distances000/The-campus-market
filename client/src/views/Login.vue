@@ -37,10 +37,10 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage } from "../utils/message";
 import { useUserStore } from "../stores/user";
 import { login as loginApi } from "../api/auth";
-import { User, Lock } from "@element-plus/icons-vue";
+import { User, Lock } from "../components/element-icons";
 
 const router = useRouter();
 const route = useRoute();

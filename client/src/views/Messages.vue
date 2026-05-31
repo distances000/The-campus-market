@@ -136,7 +136,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage } from "../utils/message";
 import { useUserStore } from "../stores/user";
 import { addFriend, getConversations, getFriends, getNotifications, getUnreadCount, readNotifications, searchUsers } from "../api/messages";
 

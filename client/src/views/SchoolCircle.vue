@@ -34,11 +34,11 @@
 </template>
 <script setup>
 import {computed, ref, onMounted} from "vue";
-import {ElMessage, ElMessageBox} from "element-plus";
+import {ElMessage, ElMessageBox} from "../utils/message";
 import {useUserStore} from "../stores/user";
 import {getPosts, createPost, likePost, deletePost} from "../api/posts";
 import {CAMPUS_FILTER_OPTIONS} from "../utils/options";
-import { Pointer, ChatLineSquare, Delete } from "@element-plus/icons-vue";
+import { Pointer, ChatLineSquare, Delete } from "../components/element-icons";
 
 const userStore = useUserStore();
 const posts = ref([]);
