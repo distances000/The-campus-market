@@ -1,6 +1,7 @@
 const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
+const { createNotification } = require("../utils/notifications");
 const router = express.Router();
 
 router.post("/", authMiddleware, (req, res) => {
@@ -46,7 +47,8 @@ router.get("/:id", optionalAuth, (req, res) => {
 
 router.post("/:id/like", authMiddleware, (req, res) => {
     const db = getDb();
-    if (!db.prepare("SELECT id FROM posts WHERE id=?").get(req.params.id))
+    const post = db.prepare("SELECT id, author_id, content FROM posts WHERE id=?").get(req.params.id);
+    if (!post)
         return res.json({ code: 404, message: "?????" });
     const like = db.prepare("SELECT id FROM likes WHERE user_id=? AND post_id=?").get(req.user.id, req.params.id);
     if (like) {
@@ -56,6 +58,16 @@ router.post("/:id/like", authMiddleware, (req, res) => {
     } else {
         db.prepare("INSERT INTO likes (user_id,post_id) VALUES (?,?)").run(req.user.id, req.params.id);
         db.prepare("UPDATE posts SET likes_count=likes_count+1 WHERE id=?").run(req.params.id);
+        createNotification(db, {
+            userId: post.author_id,
+            actorId: req.user.id,
+            kind: "interaction",
+            eventType: "post_liked",
+            title: "有人赞了你的校园墙",
+            content: post.content ? post.content.slice(0, 36) : "点击查看帖子详情",
+            objectType: "post",
+            objectId: Number(req.params.id)
+        });
         res.json({ code: 200, message: "????", data: { liked: true } });
     }
 });
@@ -64,13 +76,24 @@ router.post("/:id/comment", authMiddleware, (req, res) => {
     const { content } = req.body;
     if (!content || !content.trim()) return res.json({ code: 400, message: "??????" });
     const db = getDb();
-    if (!db.prepare("SELECT id FROM posts WHERE id=?").get(req.params.id))
+    const post = db.prepare("SELECT id, author_id, content FROM posts WHERE id=?").get(req.params.id);
+    if (!post)
         return res.json({ code: 404, message: "?????" });
     const r = db.prepare("INSERT INTO comments (user_id,post_id,content) VALUES (?,?,?)")
         .run(req.user.id, req.params.id, content);
     db.prepare("UPDATE posts SET comments_count=comments_count+1 WHERE id=?").run(req.params.id);
     const comment = db.prepare("SELECT c.*,u.nickname AS user_name,u.avatar_url AS user_avatar FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?")
         .get(r.lastInsertRowid);
+    createNotification(db, {
+        userId: post.author_id,
+        actorId: req.user.id,
+        kind: "interaction",
+        eventType: "post_commented",
+        title: "有人评论了你的校园墙",
+        content: content.trim().slice(0, 60),
+        objectType: "post",
+        objectId: Number(req.params.id)
+    });
     res.json({ code: 200, message: "????", data: comment });
 });
 

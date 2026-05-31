@@ -1,6 +1,7 @@
 const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
+const { createNotification } = require("../utils/notifications");
 
 const router = express.Router();
 
@@ -58,6 +59,19 @@ router.post("/", authMiddleware, (req, res) => {
     `).get(orderId);
     order.images = JSON.parse(order.images_json || "[]");
     delete order.images_json;
+
+    createNotification(db, {
+        userId: product.seller_id,
+        actorId: req.user.id,
+        kind: "system",
+        eventType: "order_created",
+        title: "你收到了新的订单",
+        content: product.title,
+        objectType: "order",
+        objectId: orderId,
+        extra: { product_id: product.id }
+    });
+
     res.json({ code: 200, message: "下单成功", data: order });
 });
 
@@ -66,6 +80,7 @@ router.get("/my/list", authMiddleware, (req, res) => {
     const db = getDb();
     const conds = [];
     const params = [];
+
     if (role === "buyer") {
         conds.push("o.buyer_id=?");
         params.push(req.user.id);
@@ -76,10 +91,12 @@ router.get("/my/list", authMiddleware, (req, res) => {
         conds.push("(o.buyer_id=? OR o.seller_id=?)");
         params.push(req.user.id, req.user.id);
     }
+
     if (status) {
         conds.push("o.status=?");
         params.push(status);
     }
+
     const where = "WHERE " + conds.join(" AND ");
     const list = db.prepare(`
         SELECT
@@ -106,6 +123,7 @@ router.get("/my/list", authMiddleware, (req, res) => {
         order.role = order.buyer_id === req.user.id ? "buyer" : "seller";
         return order;
     });
+
     res.json({ code: 200, data: { list } });
 });
 
@@ -115,7 +133,22 @@ router.post("/:id/complete", authMiddleware, (req, res) => {
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id) return res.json({ code: 403, message: "只有买家可以确认完成" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可完成" });
+
     db.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+
+    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    createNotification(db, {
+        userId: order.seller_id,
+        actorId: req.user.id,
+        kind: "system",
+        eventType: "order_completed",
+        title: "买家已确认订单完成",
+        content: product?.title || "点击查看订单详情",
+        objectType: "order",
+        objectId: order.id,
+        extra: { product_id: order.product_id }
+    });
+
     res.json({ code: 200, message: "订单已完成" });
 });
 
@@ -125,18 +158,35 @@ router.post("/:id/cancel", authMiddleware, (req, res) => {
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权取消该订单" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可取消" });
+
     const cancelOrder = db.transaction(() => {
         db.prepare("UPDATE orders SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
         db.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.product_id);
     });
     cancelOrder();
+
+    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    const targetUserId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;
+    createNotification(db, {
+        userId: targetUserId,
+        actorId: req.user.id,
+        kind: "system",
+        eventType: "order_cancelled",
+        title: "订单已被取消",
+        content: product?.title || "点击查看订单详情",
+        objectType: "order",
+        objectId: order.id,
+        extra: { product_id: order.product_id }
+    });
+
     res.json({ code: 200, message: "订单已取消" });
 });
 
 router.post("/:id/review", authMiddleware, (req, res) => {
     const { rating, content = "" } = req.body;
     const score = Number(rating);
-    if (!Number.isInteger(score) || score < 1 || score > 5) return res.json({ code: 400, message: "评分范围必须为 1-5" });
+    if (!Number.isInteger(score) || score < 1 || score > 5) return res.json({ code: 400, message: "评分范围必须是 1-5" });
+
     const db = getDb();
     const order = db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
@@ -144,11 +194,13 @@ router.post("/:id/review", authMiddleware, (req, res) => {
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权评价该订单" });
     const exists = db.prepare("SELECT id FROM reviews WHERE order_id=? AND reviewer_id=?").get(order.id, req.user.id);
     if (exists) return res.json({ code: 400, message: "你已经评价过该订单" });
+
     const revieweeId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;
     const result = db.prepare(`
         INSERT INTO reviews (order_id,product_id,reviewer_id,reviewee_id,rating,content)
         VALUES (?,?,?,?,?,?)
     `).run(order.id, order.product_id, req.user.id, revieweeId, score, content.trim());
+
     const review = db.prepare(`
         SELECT
             r.*,
@@ -159,6 +211,20 @@ router.post("/:id/review", authMiddleware, (req, res) => {
         JOIN users reviewee ON reviewee.id=r.reviewee_id
         WHERE r.id=?
     `).get(result.lastInsertRowid);
+
+    const product = db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
+    createNotification(db, {
+        userId: revieweeId,
+        actorId: req.user.id,
+        kind: "system",
+        eventType: "review_received",
+        title: "你收到了新的交易评价",
+        content: product?.title || "点击查看评价详情",
+        objectType: "review",
+        objectId: review.id,
+        extra: { order_id: order.id, product_id: order.product_id }
+    });
+
     res.json({ code: 200, message: "评价成功", data: review });
 });
 
@@ -176,6 +242,7 @@ router.get("/reviews/received", authMiddleware, (req, res) => {
         WHERE r.reviewee_id=?
         ORDER BY r.created_at DESC
     `).all(req.user.id);
+
     res.json({ code: 200, data: { list, credit: getUserCredit(db, req.user.id) } });
 });
 

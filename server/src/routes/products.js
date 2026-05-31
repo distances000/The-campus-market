@@ -1,6 +1,7 @@
 const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
+const { createNotification } = require("../utils/notifications");
 const router = express.Router();
 
 function normalizeStatus(status) {
@@ -185,7 +186,8 @@ router.delete("/:id", authMiddleware, (req, res) => {
 
 router.post("/:id/favorite", authMiddleware, (req, res) => {
     const db = getDb();
-    if (!db.prepare("SELECT id FROM products WHERE id=?").get(req.params.id))
+    const product = db.prepare("SELECT id, seller_id, title FROM products WHERE id=?").get(req.params.id);
+    if (!product)
         return res.json({ code: 404, message: "?????" });
     const fav = db.prepare("SELECT id FROM favorites WHERE user_id=? AND product_id=?").get(req.user.id, req.params.id);
     if (fav) {
@@ -193,6 +195,16 @@ router.post("/:id/favorite", authMiddleware, (req, res) => {
         res.json({ code: 200, message: "?????", data: { favorited: false } });
     } else {
         db.prepare("INSERT INTO favorites (user_id,product_id) VALUES (?,?)").run(req.user.id, req.params.id);
+        createNotification(db, {
+            userId: product.seller_id,
+            actorId: req.user.id,
+            kind: "interaction",
+            eventType: "product_favorited",
+            title: "有人收藏了你的商品",
+            content: product.title,
+            objectType: "product",
+            objectId: Number(req.params.id)
+        });
         res.json({ code: 200, message: "????", data: { favorited: true } });
     }
 });

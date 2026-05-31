@@ -72,6 +72,22 @@ function initDatabase() {
             FOREIGN KEY (sender_id) REFERENCES users(id),
             FOREIGN KEY (receiver_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            actor_id INTEGER,
+            kind TEXT NOT NULL DEFAULT "system",
+            event_type TEXT NOT NULL DEFAULT "system_notice",
+            title TEXT NOT NULL,
+            content TEXT DEFAULT "",
+            object_type TEXT DEFAULT "",
+            object_id INTEGER,
+            extra_json TEXT DEFAULT "{}",
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (actor_id) REFERENCES users(id)
+        );
         CREATE TABLE IF NOT EXISTS favorites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -131,6 +147,10 @@ function initDatabase() {
         CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
         CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
         CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_kind ON notifications(kind);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_kind_read ON notifications(user_id, kind, is_read);
+        CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
         CREATE INDEX IF NOT EXISTS idx_likes_post ON likes(post_id);
         CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
