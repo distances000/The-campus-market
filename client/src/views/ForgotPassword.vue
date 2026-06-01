@@ -231,7 +231,7 @@ async function handleQueryStatus() {
 
 <style scoped>
 .forgot-page {
-    min-height: 100vh;
+    min-height: var(--app-screen-height);
     padding: 24px;
     background:
         radial-gradient(circle at top left, rgba(214, 227, 255, 0.72), transparent 28%),

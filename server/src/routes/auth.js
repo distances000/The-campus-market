@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { getDb } = require("../config/db");
 const { generateToken, authMiddleware } = require("../middleware/auth");
+const { generateSmsCode, getSmsCodeHash, sendSmsCode } = require("../services/sms");
 
 const router = express.Router();
 
@@ -50,11 +51,88 @@ async function getPublicUserById(db, userId) {
     return withCredit(db, user);
 }
 
+function isValidSmsCode(code) {
+    return /^\d{6}$/.test(normalizeText(code));
+}
+
+async function getLatestPhoneVerification(db, phone, purpose) {
+    return db.prepare(`
+        SELECT id, code_hash, verify_attempts, expires_at, consumed_at, last_sent_at
+        FROM phone_verification_codes
+        WHERE phone=? AND purpose=?
+        ORDER BY id DESC
+        LIMIT 1
+    `).get(phone, purpose);
+}
+
+router.post("/register/send-code", async (req, res) => {
+    const phone = normalizePhone(req.body.phone);
+    const purpose = "register";
+
+    if (!phone) {
+        return res.json({ code: 400, message: "请填写手机号" });
+    }
+    if (!isValidPhone(phone)) {
+        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+    }
+
+    const db = getDb();
+    if (await db.prepare("SELECT id FROM users WHERE phone=?").get(phone)) {
+        return res.json({ code: 400, message: "手机号已被注册" });
+    }
+
+    const latest = await getLatestPhoneVerification(db, phone, purpose);
+    const cooldownSeconds = Number.parseInt(process.env.SMS_CODE_COOLDOWN_SECONDS || "60", 10);
+    if (latest && latest.last_sent_at && !latest.consumed_at) {
+        const lastSentAt = new Date(latest.last_sent_at).getTime();
+        if (!Number.isNaN(lastSentAt) && Date.now() - lastSentAt < cooldownSeconds * 1000) {
+            const remainingSeconds = Math.max(1, cooldownSeconds - Math.floor((Date.now() - lastSentAt) / 1000));
+            return res.status(429).json({
+                code: 429,
+                message: `验证码发送过于频繁，请 ${remainingSeconds} 秒后再试`
+            });
+        }
+    }
+
+    const code = generateSmsCode();
+    const codeHash = getSmsCodeHash(phone, purpose, code);
+    const ttlSeconds = Number.parseInt(process.env.SMS_CODE_TTL_SECONDS || "300", 10);
+
+    const result = await db.prepare(`
+        INSERT INTO phone_verification_codes (
+            phone,
+            purpose,
+            code_hash,
+            verify_attempts,
+            send_count,
+            request_ip,
+            last_sent_at,
+            expires_at
+        ) VALUES (?, ?, ?, 0, 1, ?, CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? SECOND))
+    `).run(phone, purpose, codeHash, normalizeText(req.ip || ""), ttlSeconds);
+
+    try {
+        await sendSmsCode({ phone, code, purpose });
+    } catch (error) {
+        await db.prepare("DELETE FROM phone_verification_codes WHERE id=?").run(result.lastInsertRowid);
+        return res.status(500).json({
+            code: 500,
+            message: error.message || "短信发送失败"
+        });
+    }
+
+    return res.json({
+        code: 200,
+        message: "验证码已发送"
+    });
+});
+
 router.post("/register", async (req, res) => {
     const username = normalizeText(req.body.username);
     const password = String(req.body.password || "");
     const nickname = normalizeText(req.body.nickname) || username;
     const phone = normalizePhone(req.body.phone);
+    const phoneCode = normalizeText(req.body.phone_code || req.body.phoneCode);
 
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
@@ -68,6 +146,12 @@ router.post("/register", async (req, res) => {
     if (password.length < 6) {
         return res.json({ code: 400, message: "密码至少需要 6 位" });
     }
+    if (!phoneCode) {
+        return res.json({ code: 400, message: "请填写短信验证码" });
+    }
+    if (!isValidSmsCode(phoneCode)) {
+        return res.json({ code: 400, message: "请输入 6 位短信验证码" });
+    }
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
@@ -77,11 +161,44 @@ router.post("/register", async (req, res) => {
         return res.json({ code: 400, message: "手机号已被注册" });
     }
 
+    const verification = await getLatestPhoneVerification(db, phone, "register");
+    if (!verification) {
+        return res.json({ code: 400, message: "请先获取短信验证码" });
+    }
+    if (verification.consumed_at) {
+        return res.json({ code: 400, message: "短信验证码已使用，请重新获取" });
+    }
+    if (verification.expires_at && new Date(verification.expires_at).getTime() < Date.now()) {
+        return res.json({ code: 400, message: "短信验证码已过期，请重新获取" });
+    }
+    if (verification.code_hash !== getSmsCodeHash(phone, "register", phoneCode)) {
+        const nextAttempts = Number(verification.verify_attempts || 0) + 1;
+        await db.prepare(`
+            UPDATE phone_verification_codes
+            SET verify_attempts=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+        `).run(nextAttempts, verification.id);
+        if (nextAttempts >= 5) {
+            await db.prepare(`
+                UPDATE phone_verification_codes
+                SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            `).run(verification.id);
+        }
+        return res.json({ code: 400, message: "短信验证码不正确" });
+    }
+
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await db.prepare(`
         INSERT INTO users (username, password_hash, nickname, phone)
         VALUES (?, ?, ?, ?)
     `).run(username, passwordHash, nickname, phone);
+
+    await db.prepare(`
+        UPDATE phone_verification_codes
+        SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    `).run(verification.id);
 
     const user = await getPublicUserById(db, result.lastInsertRowid);
     return res.json({

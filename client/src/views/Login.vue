@@ -78,7 +78,7 @@ onMounted(() => {
 });
 </script>
 <style scoped>
-.auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eef2ff 0%,#f8fafc 45%,#ffffff 100%);padding:20px;}
+.auth-page{min-height:var(--app-screen-height);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eef2ff 0%,#f8fafc 45%,#ffffff 100%);padding:20px;}
 .auth-card{width:400px;max-width:100%;background:var(--bg-primary);border-radius:20px;padding:40px;box-shadow:0 24px 80px rgba(15,23,42,.12);}
 .auth-header{text-align:center;margin-bottom:32px;}
 .auth-logo{width:56px;height:56px;background:linear-gradient(135deg,var(--primary),#4f46e5);color:#fff;border-radius:16px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:28px;margin:0 auto 16px;}

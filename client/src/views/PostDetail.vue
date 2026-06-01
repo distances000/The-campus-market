@@ -308,13 +308,17 @@ watch(() => route.params.id, fetchPost);
 }
 
 .pd-images {
+    display: grid;
+    gap: 8px;
     padding: 12px 0;
 }
 
 .pd-images img {
     width: 100%;
-    margin-bottom: 8px;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
     border-radius: var(--radius);
+    background: linear-gradient(180deg, #eef2fa 0%, #e7ebf3 100%);
 }
 
 .pd-actions {

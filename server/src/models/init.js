@@ -25,6 +25,29 @@ const BASE_TABLES = [
         `
     },
     {
+        name: "phone_verification_codes",
+        sql: `
+            CREATE TABLE IF NOT EXISTS phone_verification_codes (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                phone VARCHAR(32) NOT NULL,
+                purpose VARCHAR(32) NOT NULL,
+                code_hash VARCHAR(255) NOT NULL,
+                verify_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+                send_count INT UNSIGNED NOT NULL DEFAULT 1,
+                request_ip VARCHAR(64) NOT NULL DEFAULT '',
+                last_sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                consumed_at DATETIME NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_phone_verification_phone (phone),
+                KEY idx_phone_verification_purpose (purpose),
+                KEY idx_phone_verification_expires (expires_at),
+                KEY idx_phone_verification_status (phone, purpose, consumed_at, expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `
+    },
+    {
         name: "products",
         sql: `
             CREATE TABLE IF NOT EXISTS products (
@@ -275,6 +298,16 @@ const SCHEMA_EXPECTATIONS = [
         indexes: ["uq_users_username", "idx_users_admin", "idx_users_moderator"]
     },
     {
+        table: "phone_verification_codes",
+        columns: ["phone", "purpose", "code_hash", "verify_attempts", "send_count", "request_ip", "last_sent_at", "expires_at", "consumed_at"],
+        indexes: [
+            "idx_phone_verification_phone",
+            "idx_phone_verification_purpose",
+            "idx_phone_verification_expires",
+            "idx_phone_verification_status"
+        ]
+    },
+    {
         table: "products",
         columns: ["original_price", "category", "condition", "campus", "images_json", "status", "views"],
         indexes: ["idx_products_seller", "idx_products_category", "idx_products_campus", "idx_products_status", "idx_products_created"]
@@ -457,6 +490,34 @@ const migrations = [
             await ctx.ensureIndex("users", "uq_users_username", "UNIQUE KEY `uq_users_username` (`username`)");
             await ctx.ensureIndex("users", "idx_users_admin", "KEY `idx_users_admin` (`is_admin`)");
             await ctx.ensureIndex("users", "idx_users_moderator", "KEY `idx_users_moderator` (`can_moderate`)");
+        }
+    },
+    {
+        key: "20260602_002_phone_verification_upgrade",
+        async run(ctx) {
+            await ctx.ensureTable(
+                "phone_verification_codes",
+                `
+                    CREATE TABLE IF NOT EXISTS phone_verification_codes (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        phone VARCHAR(32) NOT NULL,
+                        purpose VARCHAR(32) NOT NULL,
+                        code_hash VARCHAR(255) NOT NULL,
+                        verify_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+                        send_count INT UNSIGNED NOT NULL DEFAULT 1,
+                        request_ip VARCHAR(64) NOT NULL DEFAULT '',
+                        last_sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        expires_at DATETIME NOT NULL,
+                        consumed_at DATETIME NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        KEY idx_phone_verification_phone (phone),
+                        KEY idx_phone_verification_purpose (purpose),
+                        KEY idx_phone_verification_expires (expires_at),
+                        KEY idx_phone_verification_status (phone, purpose, consumed_at, expires_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                `
+            );
         }
     },
     {

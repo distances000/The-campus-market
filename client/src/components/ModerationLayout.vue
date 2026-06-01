@@ -92,7 +92,7 @@ function goProfile() {
 
 <style scoped>
 .moderation-shell {
-    min-height: 100vh;
+    min-height: var(--app-screen-height);
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
     gap: 20px;

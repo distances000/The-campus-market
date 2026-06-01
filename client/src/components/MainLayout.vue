@@ -267,7 +267,7 @@ watch(() => userStore.token, () => {
 
 <style scoped>
 .main-layout {
-    min-height: 100vh;
+    min-height: var(--app-screen-height);
     display: flex;
     flex-direction: column;
     padding-bottom: 90px;
@@ -348,7 +348,7 @@ watch(() => userStore.token, () => {
     left: 50%;
     bottom: 16px;
     transform: translateX(-50%);
-    width: min(720px, calc(100vw - 20px));
+    width: min(720px, calc(100% - 20px));
     height: 72px;
     padding: 8px 12px;
     display: flex;
@@ -421,7 +421,7 @@ watch(() => userStore.token, () => {
 
     .bottom-nav {
         bottom: 10px;
-        width: calc(100vw - 12px);
+        width: calc(100% - 12px);
         border-radius: 28px;
     }
 }

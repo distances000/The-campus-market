@@ -248,7 +248,7 @@ watch(() => userStore.token, () => {
 
 <style scoped>
 .chat-page {
-    height: calc(100vh - var(--header-height) - 92px);
+    height: calc(var(--app-screen-height) - var(--header-height) - 92px);
     display: flex;
     flex-direction: column;
     margin-top: 12px;
@@ -382,7 +382,7 @@ watch(() => userStore.token, () => {
 
 @media (max-width: 640px) {
     .chat-page {
-        height: calc(100vh - var(--header-height) - 88px);
+        height: calc(var(--app-screen-height) - var(--header-height) - 88px);
     }
 
     .chat-container {
