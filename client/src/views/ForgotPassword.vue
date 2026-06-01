@@ -5,7 +5,7 @@
                 <div class="hero-copy">
                     <div class="hero-eyebrow">账号安全</div>
                     <h1>找回密码</h1>
-                    <p>当前项目没有短信和邮箱能力，找回密码走人工审核。你可以提交申请单，管理员核验后会重置一个临时密码，首次登录后系统会强制你修改密码。</p>
+                    <p>当前找回密码仍走人工审核；注册阶段已支持短信验证码。你可以提交申请单，管理员核验后会重置一个临时密码，首次登录后系统会强制你修改密码。</p>
                 </div>
                 <div class="hero-steps">
                     <div class="step-item" v-for="step in steps" :key="step.title">
