@@ -2,14 +2,21 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
+const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const router = express.Router();
 
 router.post("/", authMiddleware, async (req, res) => {
     const { content, images_json, campus } = req.body;
     if (!content || !content.trim()) return res.json({ code: 400, message: "??????" });
+    let images = [];
+    try {
+        images = normalizeImageList(images_json || "[]");
+    } catch (error) {
+        return res.json({ code: 400, message: error.message });
+    }
     const db = getDb();
     const r = await db.prepare("INSERT INTO posts (author_id,content,images_json,campus) VALUES (?,?,?,?)")
-        .run(req.user.id, content, images_json || "[]", campus || "");
+        .run(req.user.id, content, JSON.stringify(images), campus || "");
     const post = await db.prepare("SELECT p.*,u.nickname AS author_name,u.avatar_url AS author_avatar FROM posts p JOIN users u ON p.author_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
     post.images = JSON.parse(post.images_json); delete post.images_json;
@@ -114,11 +121,17 @@ router.delete("/:postId/comment/:commentId", authMiddleware, async (req, res) =>
 
 router.delete("/:id", authMiddleware, async (req, res) => {
     const db = getDb();
-    if (!await db.prepare("SELECT id FROM posts WHERE id=? AND author_id=?").get(req.params.id, req.user.id))
+    const post = await db.prepare("SELECT id, images_json FROM posts WHERE id=? AND author_id=?").get(req.params.id, req.user.id);
+    if (!post)
         return res.json({ code: 403, message: "????" });
     await db.prepare("DELETE FROM likes WHERE post_id=?").run(req.params.id);
     await db.prepare("DELETE FROM comments WHERE post_id=?").run(req.params.id);
     await db.prepare("DELETE FROM posts WHERE id=?").run(req.params.id);
+    try {
+        await deleteManagedUploadsIfOrphan(db, normalizeImageList(post.images_json || "[]"));
+    } catch (error) {
+        console.error("Failed to cleanup deleted post images:", error);
+    }
     res.json({ code: 200, message: "????" });
 });
 

@@ -2,6 +2,7 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
+const { normalizeImageList, getRemovedManagedUrls, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const router = express.Router();
 
 function normalizeStatus(status) {
@@ -32,9 +33,15 @@ async function getUserCredit(db, userId) {
 router.post("/", authMiddleware, async (req, res) => {
     const { title, description, price, original_price, category, condition, campus, images_json } = req.body;
     if (!title || !price) return res.json({ code: 400, message: "???????????" });
+    let images = [];
+    try {
+        images = normalizeImageList(images_json || "[]");
+    } catch (error) {
+        return res.json({ code: 400, message: error.message });
+    }
     const db = getDb();
     const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
-        .run(req.user.id, title, description || "", price, original_price || null, category || "other", condition || "used", campus || "", images_json || "[]");
+        .run(req.user.id, title, description || "", price, original_price || null, category || "other", condition || "used", campus || "", JSON.stringify(images));
     const p = await db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
     p.images = JSON.parse(p.images_json); delete p.images_json;
@@ -151,12 +158,12 @@ router.get("/:id", optionalAuth, async (req, res) => {
 
 router.put("/:id", authMiddleware, async (req, res) => {
     const db = getDb();
-    if (!await db.prepare("SELECT id FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id))
+    const current = await db.prepare("SELECT id, status, images_json FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id);
+    if (!current)
         return res.json({ code: 403, message: "????" });
     const { title, description, price, original_price, category, condition, campus, images_json, status } = req.body;
-    const current = await db.prepare("SELECT status FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id);
-    if (!current) return res.json({ code: 403, message: "????" });
     const fields=[], vals=[];
+    let nextImages = null;
     if (title !== undefined) { fields.push("title=?"); vals.push(title); }
     if (description !== undefined) { fields.push("description=?"); vals.push(description); }
     if (price !== undefined) { fields.push("price=?"); vals.push(price); }
@@ -164,7 +171,15 @@ router.put("/:id", authMiddleware, async (req, res) => {
     if (category !== undefined) { fields.push("category=?"); vals.push(category); }
     if (condition !== undefined) { fields.push("`condition`=?"); vals.push(condition); }
     if (campus !== undefined) { fields.push("campus=?"); vals.push(campus); }
-    if (images_json !== undefined) { fields.push("images_json=?"); vals.push(images_json); }
+    if (images_json !== undefined) {
+        try {
+            nextImages = normalizeImageList(images_json);
+        } catch (error) {
+            return res.json({ code: 400, message: error.message });
+        }
+        fields.push("images_json=?");
+        vals.push(JSON.stringify(nextImages));
+    }
     if (status !== undefined) {
         const nextStatus = normalizeStatus(status);
         if (!canTransitionProductStatus(current.status, nextStatus)) return res.json({ code: 400, message: "??????" });
@@ -177,17 +192,31 @@ router.put("/:id", authMiddleware, async (req, res) => {
     const p = await db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
         .get(req.params.id);
     p.images = JSON.parse(p.images_json); delete p.images_json;
+    if (nextImages) {
+        const previousImages = normalizeImageList(current.images_json || "[]");
+        try {
+            await deleteManagedUploadsIfOrphan(db, getRemovedManagedUrls(previousImages, nextImages));
+        } catch (error) {
+            console.error("Failed to cleanup replaced product images:", error);
+        }
+    }
     res.json({ code: 200, message: "????", data: p });
 });
 
 router.delete("/:id", authMiddleware, async (req, res) => {
     const db = getDb();
-    if (!await db.prepare("SELECT id FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id))
+    const product = await db.prepare("SELECT id, images_json FROM products WHERE id=? AND seller_id=?").get(req.params.id, req.user.id);
+    if (!product)
         return res.json({ code: 403, message: "????" });
     if (await db.prepare("SELECT id FROM orders WHERE product_id=?").get(req.params.id))
         return res.json({ code: 400, message: "该商品已有订单，不能直接删除" });
     await db.prepare("DELETE FROM favorites WHERE product_id=?").run(req.params.id);
     await db.prepare("DELETE FROM products WHERE id=?").run(req.params.id);
+    try {
+        await deleteManagedUploadsIfOrphan(db, normalizeImageList(product.images_json || "[]"));
+    } catch (error) {
+        console.error("Failed to cleanup deleted product images:", error);
+    }
     res.json({ code: 200, message: "????" });
 });
 

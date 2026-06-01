@@ -4,6 +4,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
 const { moderationMiddleware } = require("../middleware/moderation");
 const { createNotification } = require("../utils/notifications");
+const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 
 const router = express.Router();
 
@@ -65,13 +66,18 @@ async function applyModerationAction(db, report, actionType) {
         if (report.target_type !== "post") {
             throw new Error("只有帖子举报才能执行删除操作");
         }
-        const post = await db.prepare("SELECT id FROM posts WHERE id=?").get(report.target_id);
+        const post = await db.prepare("SELECT id, images_json FROM posts WHERE id=?").get(report.target_id);
         if (!post) {
             throw new Error("该帖子已不存在，无法重复删除");
         }
         await db.prepare("DELETE FROM likes WHERE post_id=?").run(report.target_id);
         await db.prepare("DELETE FROM comments WHERE post_id=?").run(report.target_id);
         await db.prepare("DELETE FROM posts WHERE id=?").run(report.target_id);
+        try {
+            await deleteManagedUploadsIfOrphan(db, normalizeImageList(post.images_json || "[]"));
+        } catch (error) {
+            console.error("Failed to cleanup moderated post images:", error);
+        }
     }
 }
 

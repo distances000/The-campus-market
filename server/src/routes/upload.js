@@ -1,26 +1,150 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const { authMiddleware } = require("../middleware/auth");
+const {
+    MAX_IMAGE_SIZE_BYTES,
+    MAX_IMAGE_COUNT,
+    ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_IMAGE_MIME_TYPES,
+    ensureUploadDirSync,
+    buildUploadUrl,
+    UPLOAD_DIR
+} = require("../utils/upload");
+
 const router = express.Router();
 
+ensureUploadDirSync();
+
+function createUploadError(message, code = "UPLOAD_ERROR") {
+    const error = new Error(message);
+    error.code = code;
+    error.isUploadError = true;
+    return error;
+}
+
+function validateIncomingFile(file) {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const mimeType = String(file.mimetype || "").toLowerCase();
+
+    if (!ALLOWED_IMAGE_EXTENSIONS.includes(extension) || !ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+        throw createUploadError("仅支持 JPG、JPEG、PNG、GIF、WebP 图片");
+    }
+
+    return extension;
+}
+
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => { fs.mkdirSync(path.join(__dirname,"..","..","uploads"),{recursive:true}); cb(null, path.join(__dirname,"..","..","uploads")); },
-    filename: (req, file, cb) => { const ext = path.extname(file.originalname); cb(null, uuidv4()+ext); }
+    destination: (req, file, cb) => {
+        cb(null, UPLOAD_DIR);
+    },
+    filename: (req, file, cb) => {
+        try {
+            const extension = validateIncomingFile(file);
+            cb(null, `${uuidv4()}${extension}`);
+        } catch (error) {
+            cb(error);
+        }
+    }
 });
 
-const upload = multer({ storage, limits: { fileSize: 10*1024*1024 }, fileFilter: (req,file,cb) => { const allowed=[".jpg",".jpeg",".png",".gif",".webp"]; if(allowed.includes(path.extname(file.originalname).toLowerCase())) cb(null,true); else cb(new Error("???jpg/png/gif/webp")); } });
-
-router.post("/", authMiddleware, upload.single("file"), (req, res) => {
-    if (!req.file) return res.json({ code: 400, message: "?????" });
-    res.json({ code: 200, data: { url: "/uploads/"+req.file.filename, filename: req.file.filename } });
+const upload = multer({
+    storage,
+    limits: {
+        fileSize: MAX_IMAGE_SIZE_BYTES,
+        files: MAX_IMAGE_COUNT
+    },
+    fileFilter: (req, file, cb) => {
+        try {
+            validateIncomingFile(file);
+            cb(null, true);
+        } catch (error) {
+            cb(error);
+        }
+    }
 });
 
-router.post("/batch", authMiddleware, upload.array("files", 9), (req, res) => {
-    if (!req.files || !req.files.length) return res.json({ code: 400, message: "?????" });
-    res.json({ code: 200, data: { urls: req.files.map(f=>"/uploads/"+f.filename) } });
+function withUpload(middleware) {
+    return (req, res, next) => {
+        middleware(req, res, (error) => {
+            if (error) {
+                next(error);
+                return;
+            }
+            next();
+        });
+    };
+}
+
+router.post("/", authMiddleware, withUpload(upload.single("file")), (req, res) => {
+    if (!req.file) {
+        return res.json({ code: 400, message: "请选择要上传的图片" });
+    }
+
+    return res.json({
+        code: 200,
+        message: "图片上传成功",
+        data: {
+            url: buildUploadUrl(req.file.filename),
+            filename: req.file.filename,
+            limits: {
+                max_size_bytes: MAX_IMAGE_SIZE_BYTES,
+                max_count: MAX_IMAGE_COUNT,
+                allowed_extensions: ALLOWED_IMAGE_EXTENSIONS
+            }
+        }
+    });
+});
+
+router.post("/batch", authMiddleware, withUpload(upload.array("files", MAX_IMAGE_COUNT)), (req, res) => {
+    if (!req.files || !req.files.length) {
+        return res.json({ code: 400, message: "请选择要上传的图片" });
+    }
+
+    return res.json({
+        code: 200,
+        message: "图片上传成功",
+        data: {
+            urls: req.files.map((file) => buildUploadUrl(file.filename)),
+            files: req.files.map((file) => ({
+                url: buildUploadUrl(file.filename),
+                filename: file.filename
+            })),
+            limits: {
+                max_size_bytes: MAX_IMAGE_SIZE_BYTES,
+                max_count: MAX_IMAGE_COUNT,
+                allowed_extensions: ALLOWED_IMAGE_EXTENSIONS
+            }
+        }
+    });
+});
+
+router.use((error, req, res, next) => {
+    if (error instanceof multer.MulterError) {
+        if (error.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({
+                code: 400,
+                message: `单张图片不能超过 ${Math.floor(MAX_IMAGE_SIZE_BYTES / (1024 * 1024))}MB`
+            });
+        }
+
+        if (error.code === "LIMIT_FILE_COUNT" || error.code === "LIMIT_UNEXPECTED_FILE") {
+            return res.status(400).json({
+                code: 400,
+                message: `一次最多上传 ${MAX_IMAGE_COUNT} 张图片`
+            });
+        }
+    }
+
+    if (error?.isUploadError) {
+        return res.status(400).json({
+            code: 400,
+            message: error.message || "图片上传失败"
+        });
+    }
+
+    return next(error);
 });
 
 module.exports = router;
