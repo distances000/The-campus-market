@@ -73,6 +73,9 @@ router.post("/register", async (req, res) => {
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
         return res.json({ code: 400, message: "用户名已存在" });
     }
+    if (await db.prepare("SELECT id FROM users WHERE phone=?").get(phone)) {
+        return res.json({ code: 400, message: "手机号已被注册" });
+    }
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await db.prepare(`
@@ -299,7 +302,7 @@ router.post("/forgot-password/status", async (req, res) => {
     `).get(username, phone);
 
     if (!requestInfo) {
-        return res.json({ code: 404, message: "没有找到对应的找回申请" });
+        return res.json({ code: 404, message: "未找到对应的找回申请" });
     }
 
     return res.json({

@@ -10,6 +10,7 @@
         <el-form :model="form" :rules="rules" ref="formRef" size="large" @submit.prevent="handleRegister">
             <el-form-item prop="username"><el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" autocomplete="username" /></el-form-item>
             <el-form-item prop="nickname"><el-input v-model="form.nickname" placeholder="请输入昵称" :prefix-icon="Edit" autocomplete="nickname" /></el-form-item>
+            <el-form-item prop="phone"><el-input v-model="form.phone" placeholder="请输入手机号" maxlength="11" autocomplete="tel" /></el-form-item>
             <el-form-item prop="password"><el-input v-model="form.password" type="password" placeholder="请输入密码（至少6位）" :prefix-icon="Lock" show-password autocomplete="new-password" /></el-form-item>
             <el-form-item prop="passwordConfirm"><el-input v-model="form.passwordConfirm" type="password" placeholder="请再次输入密码" :prefix-icon="Lock" show-password autocomplete="new-password" /></el-form-item>
             <el-form-item><el-button type="primary" native-type="submit" :loading="loading" style="width:100%">注册并登录</el-button></el-form-item>
@@ -35,11 +36,25 @@ const route = useRoute();
 const userStore = useUserStore();
 const formRef = ref(null);
 const loading = ref(false);
-const form = reactive({ username: "", nickname: "", password: "", passwordConfirm: "" });
+const form = reactive({ username: "", nickname: "", phone: "", password: "", passwordConfirm: "" });
 const redirectTo = computed(() => typeof route.query.redirect === "string" ? route.query.redirect : "/home");
 const loginLink = computed(() => redirectTo.value ? { path: "/login", query: { redirect: redirectTo.value } } : "/login");
+function validatePhone(rule, value, callback) {
+    const phone = String(value || "").trim();
+    if (!phone) {
+        callback(new Error("请输入手机号"));
+        return;
+    }
+    if (!/^1\d{10}$/.test(phone)) {
+        callback(new Error("请输入正确的 11 位手机号"));
+        return;
+    }
+    callback();
+}
+
 const rules = {
     username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
+    phone: [{ required: true, validator: validatePhone, trigger: "blur" }],
     password: [
         { required: true, message: "请输入密码", trigger: "blur" },
         { validator: (rule, value, callback) => { if ((value || "").length < 6) callback(new Error("密码至少 6 位")); else callback(); }, trigger: "blur" }
@@ -55,7 +70,7 @@ async function handleRegister() {
     if (!valid) return;
     loading.value = true;
     try {
-        const r = await regApi(form.username, form.password, form.nickname || form.username);
+        const r = await regApi(form.username, form.password, form.nickname || form.username, form.phone.trim());
         userStore.setAuth(r.data.token, r.data.user);
         userStore.authInitialized = true;
         ElMessage.success("注册成功");
