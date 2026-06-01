@@ -24,7 +24,7 @@
                     <el-button v-if="userStore.user?.is_admin" size="small" type="primary" @click="goAdminDashboard">
                         管理后台
                     </el-button>
-                    <el-button v-if="canModerate" size="small" plain @click="goModerationReports">
+                    <el-button v-if="canModerate && !userStore.user?.is_admin" size="small" plain @click="goModerationReports">
                         违规处理台
                     </el-button>
                 </div>

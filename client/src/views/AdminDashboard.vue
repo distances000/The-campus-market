@@ -3,14 +3,15 @@
         <section class="dashboard-hero">
             <div class="hero-copy">
                 <div class="hero-eyebrow">管理概览</div>
-                <h2>集中处理举报、风险内容和后台状态</h2>
+                <h2>集中查看平台状态、待处理举报和内容风险</h2>
                 <p>
-                    这里会优先展示当前最需要处理的举报，以及平台的基础运行数据。
-                    先看概览，再进入举报列表执行具体处理。
+                    先看整体指标，再进入举报管理和密码重置列表处理具体任务。
+                    这页只负责发现问题，不直接承载复杂操作。
                 </p>
                 <div class="hero-actions">
                     <el-button type="primary" :loading="loading" @click="loadDashboard">刷新数据</el-button>
-                    <el-button plain @click="goReports">进入违规处理</el-button>
+                    <el-button plain @click="goReports">进入举报管理</el-button>
+                    <el-button plain @click="goPasswordResets">进入密码重置</el-button>
                 </div>
             </div>
 
@@ -34,7 +35,7 @@
                 <div class="panel-head">
                     <div>
                         <div class="panel-title">最近举报</div>
-                        <div class="panel-subtitle">按状态优先排序，处理最前面的待办项</div>
+                        <div class="panel-subtitle">按状态优先排序，优先处理最前面的待办项</div>
                     </div>
                     <el-button text @click="goReports">查看全部</el-button>
                 </div>
@@ -56,7 +57,7 @@
                             </div>
                             <div class="report-meta">
                                 <span>{{ getReportTargetTypeLabel(report.target_type) }}</span>
-                                <span>{{ REPORT_REASON_MAP[report.reason] || report.reason }}</span>
+                                <span>{{ REPORT_REASON_MAP[report.reason] || report.reason || "未知原因" }}</span>
                                 <span>{{ formatTime(report.created_at) }}</span>
                             </div>
                             <p class="report-excerpt">{{ report.snapshot_excerpt || "暂无摘要" }}</p>
@@ -72,13 +73,13 @@
                 <div class="panel-head">
                     <div>
                         <div class="panel-title">后台健康度</div>
-                        <div class="panel-subtitle">展示基础数据和当前审核节奏</div>
+                        <div class="panel-subtitle">展示当前内容规模和审核积压情况</div>
                     </div>
                 </div>
 
                 <div class="health-list">
                     <div class="health-item">
-                        <span class="health-label">系统管理员</span>
+                        <span class="health-label">管理员数量</span>
                         <strong class="health-value">{{ stats.users.admins || 0 }}</strong>
                     </div>
                     <div class="health-item">
@@ -96,18 +97,18 @@
                 </div>
 
                 <div class="flow-card">
-                    <div class="flow-title">建议操作顺序</div>
+                    <div class="flow-title">建议处理顺序</div>
                     <div class="flow-step">
                         <span class="flow-index">1</span>
-                        <span>先处理待处理举报，再处理处理中队列</span>
+                        <span>先处理待处理举报，再跟进处理中队列。</span>
                     </div>
                     <div class="flow-step">
                         <span class="flow-index">2</span>
-                        <span>对违规内容执行下架或删除，并写明说明</span>
+                        <span>确认违规后执行下架商品或删除帖子，并补充处理说明。</span>
                     </div>
                     <div class="flow-step">
                         <span class="flow-index">3</span>
-                        <span>处理完后回到概览刷新，确认队列已下降</span>
+                        <span>处理完成后刷新概览，确认待办是否已经下降。</span>
                     </div>
                 </div>
             </article>
@@ -138,7 +139,8 @@ const stats = reactive({
     },
     users: {
         total: 0,
-        admins: 0
+        admins: 0,
+        moderators: 0
     },
     products: {
         total: 0,
@@ -155,7 +157,7 @@ const metricCards = computed(() => [
     {
         label: "待处理举报",
         value: stats.reports.pending,
-        description: "需要优先处理的未读队列"
+        description: "需要优先清理的未处理队列"
     },
     {
         label: "处理中举报",
@@ -163,24 +165,24 @@ const metricCards = computed(() => [
         description: "已经进入审核流程的举报"
     },
     {
-        label: "今日新增",
+        label: "今日新增举报",
         value: stats.reports.today,
-        description: "当天新增的举报数量"
+        description: "当天新增的风险内容线索"
     },
     {
-        label: "已处理",
+        label: "已处理举报",
         value: stats.reports.resolved,
-        description: "已经做出处理决定的举报"
+        description: "已经做出处理结论的举报"
     },
     {
-        label: "已驳回",
+        label: "已驳回举报",
         value: stats.reports.rejected,
         description: "判定不成立或无需处理的举报"
     },
     {
         label: "商品总数",
         value: stats.products.total,
-        description: "平台当前可见商品规模"
+        description: "当前平台商品规模"
     }
 ]);
 
@@ -201,7 +203,7 @@ const priorityDesc = computed(() => {
     if (stats.reports.reviewing > 0) {
         return `当前有 ${stats.reports.reviewing} 条举报处于处理中状态。`;
     }
-    return "暂时没有待处理举报，可以检查最近的处理结果。";
+    return "当前没有待处理举报，可以抽查最近处理结果。";
 });
 
 function applyStats(payload) {
@@ -238,6 +240,10 @@ function goReports() {
     router.push("/moderation/reports");
 }
 
+function goPasswordResets() {
+    router.push("/moderation/password-resets");
+}
+
 function openReport(id) {
     router.push({ path: "/moderation/reports", query: { id } });
 }
@@ -252,8 +258,8 @@ async function loadDashboard() {
         applyStats(statsResponse.data);
         recentReports.value = reportsResponse.data.list || [];
     } catch {
-        ElMessage.error("加载管理概览失败");
         recentReports.value = [];
+        ElMessage.error("加载管理概览失败");
     } finally {
         loading.value = false;
     }
@@ -524,10 +530,10 @@ onMounted(loadDashboard);
 }
 
 .flow-title {
+    margin-bottom: 12px;
     font-size: 14px;
     font-weight: 800;
     color: var(--text-primary);
-    margin-bottom: 12px;
 }
 
 .flow-step {

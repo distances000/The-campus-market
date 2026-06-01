@@ -98,9 +98,10 @@ router.post("/", authMiddleware, async (req, res) => {
             snapshot_title,
             snapshot_excerpt,
             reason,
-            description
+            description,
+            resolution_note
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         req.user.id,
         normalizedType,
@@ -109,7 +110,8 @@ router.post("/", authMiddleware, async (req, res) => {
         snapshot.snapshot_title,
         snapshot.snapshot_excerpt,
         normalizedReason,
-        normalizedDescription
+        normalizedDescription,
+        ""
     );
 
     const report = await db.prepare(`

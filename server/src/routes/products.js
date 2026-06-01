@@ -33,7 +33,7 @@ router.post("/", authMiddleware, async (req, res) => {
     const { title, description, price, original_price, category, condition, campus, images_json } = req.body;
     if (!title || !price) return res.json({ code: 400, message: "???????????" });
     const db = getDb();
-    const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,condition,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
+    const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
         .run(req.user.id, title, description || "", price, original_price || null, category || "other", condition || "used", campus || "", images_json || "[]");
     const p = await db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
@@ -162,7 +162,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
     if (price !== undefined) { fields.push("price=?"); vals.push(price); }
     if (original_price !== undefined) { fields.push("original_price=?"); vals.push(original_price); }
     if (category !== undefined) { fields.push("category=?"); vals.push(category); }
-    if (condition !== undefined) { fields.push("condition=?"); vals.push(condition); }
+    if (condition !== undefined) { fields.push("`condition`=?"); vals.push(condition); }
     if (campus !== undefined) { fields.push("campus=?"); vals.push(campus); }
     if (images_json !== undefined) { fields.push("images_json=?"); vals.push(images_json); }
     if (status !== undefined) {

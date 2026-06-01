@@ -18,9 +18,15 @@
             </div>
 
             <nav class="admin-nav">
-                <router-link to="/admin/dashboard" class="admin-nav-item" :class="{ active: route.path === '/admin/dashboard' }">
-                    <span class="admin-nav-label">管理概览</span>
-                    <span class="admin-nav-desc">查看平台的整体状态与关键指标</span>
+                <router-link
+                    v-for="item in navItems"
+                    :key="item.path"
+                    :to="item.path"
+                    class="admin-nav-item"
+                    :class="{ active: route.path === item.path }"
+                >
+                    <span class="admin-nav-label">{{ item.label }}</span>
+                    <span class="admin-nav-desc">{{ item.description }}</span>
                 </router-link>
             </nav>
 
@@ -57,6 +63,24 @@ import { useUserStore } from "../stores/user";
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
+
+const navItems = [
+    {
+        path: "/admin/dashboard",
+        label: "管理概览",
+        description: "查看平台运行状态、待处理举报和重点指标"
+    },
+    {
+        path: "/moderation/reports",
+        label: "举报管理",
+        description: "处理商品和帖子举报，执行下架或删除动作"
+    },
+    {
+        path: "/moderation/password-resets",
+        label: "密码重置",
+        description: "审核找回密码申请并设置临时密码"
+    }
+];
 
 const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "管理员");
 const profileInitial = computed(() => (displayName.value || "A").slice(0, 1));
