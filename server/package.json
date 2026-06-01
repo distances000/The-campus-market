@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "migrate-db": "node src/models/init.js",
     "init-db": "node src/models/init.js",
+    "doctor-db": "node scripts/db-doctor.js",
     "cleanup-uploads": "node scripts/cleanup-uploads.js"
   },
   "dependencies": {
