@@ -250,10 +250,11 @@ router.post("/forgot-password/request", async (req, res) => {
             user_id,
             username_snapshot,
             request_phone,
+            resolution_note,
             reason,
             status
-        ) VALUES (?, ?, ?, ?, 'pending')
-    `).run(user.id, user.username, phone, reason);
+        ) VALUES (?, ?, ?, ?, ?, 'pending')
+    `).run(user.id, user.username, phone, "", reason);
 
     const requestInfo = await db.prepare(`
         SELECT id, user_id, username_snapshot, request_phone, reason, status, resolution_note, created_at, handled_at

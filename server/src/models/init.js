@@ -1,5 +1,20 @@
 const { getDb, closeDb } = require("../config/db");
 
+async function ensureColumn(db, tableName, columnName, definition) {
+    const existing = await db.prepare(`
+        SELECT COLUMN_NAME
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+        LIMIT 1
+    `).get(tableName, columnName);
+
+    if (!existing) {
+        await db.exec(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`);
+    }
+}
+
 async function initDatabase() {
     const db = getDb();
 
@@ -205,10 +220,10 @@ async function initDatabase() {
             KEY idx_password_reset_requests_status (status),
             KEY idx_password_reset_requests_created (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-        ALTER TABLE users
-            ADD COLUMN IF NOT EXISTS must_change_password TINYINT(1) NOT NULL DEFAULT 0;
     `);
+
+    await ensureColumn(db, "users", "must_change_password", "TINYINT(1) NOT NULL DEFAULT 0");
+    await ensureColumn(db, "password_reset_requests", "resolution_note", "TEXT NOT NULL");
 
     console.log("Database initialized.");
 }
