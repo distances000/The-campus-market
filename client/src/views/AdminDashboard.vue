@@ -10,7 +10,7 @@
                 </p>
                 <div class="hero-actions">
                     <el-button type="primary" :loading="loading" @click="loadDashboard">刷新数据</el-button>
-                    <el-button plain @click="goReports">进入举报管理</el-button>
+                    <el-button plain @click="goReports">进入违规处理</el-button>
                 </div>
             </div>
 
@@ -119,7 +119,8 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "../utils/message";
-import { getAdminReports, getAdminStats } from "../api/admin";
+import { getAdminStats } from "../api/admin";
+import { getModerationReports } from "../api/moderation";
 import { REPORT_REASON_MAP, getReportStatusMeta, getReportTargetTypeLabel } from "../utils/report";
 
 const router = useRouter();
@@ -234,11 +235,11 @@ function formatTime(value) {
 }
 
 function goReports() {
-    router.push("/admin/reports");
+    router.push("/moderation/reports");
 }
 
 function openReport(id) {
-    router.push({ path: "/admin/reports", query: { id } });
+    router.push({ path: "/moderation/reports", query: { id } });
 }
 
 async function loadDashboard() {
@@ -246,7 +247,7 @@ async function loadDashboard() {
     try {
         const [statsResponse, reportsResponse] = await Promise.all([
             getAdminStats(),
-            getAdminReports({ page: 1, page_size: 6 })
+            getModerationReports({ page: 1, page_size: 6 })
         ]);
         applyStats(statsResponse.data);
         recentReports.value = reportsResponse.data.list || [];

@@ -143,10 +143,10 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "../utils/message";
 import {
-    getAdminPasswordReset,
-    getAdminPasswordResets,
-    updateAdminPasswordReset
-} from "../api/admin";
+    getModerationPasswordReset,
+    getModerationPasswordResets,
+    updateModerationPasswordReset
+} from "../api/moderation";
 
 const router = useRouter();
 
@@ -216,7 +216,7 @@ function syncProcessForm(record) {
 async function fetchRequests() {
     loading.value = true;
     try {
-        const response = await getAdminPasswordResets({
+        const response = await getModerationPasswordResets({
             page: page.value,
             page_size: pageSize.value,
             status: filters.status || undefined,
@@ -252,7 +252,7 @@ function handlePageSizeChange(nextPageSize) {
 
 async function openDetail(row) {
     try {
-        const response = await getAdminPasswordReset(row.id);
+        const response = await getModerationPasswordReset(row.id);
         detailRequest.value = response.data;
         syncProcessForm(response.data);
         drawerVisible.value = true;
@@ -276,7 +276,7 @@ async function submitRequest() {
 
     saving.value = true;
     try {
-        const response = await updateAdminPasswordReset(detailRequest.value.id, {
+        const response = await updateModerationPasswordReset(detailRequest.value.id, {
             status: processForm.status,
             resolution_note: processForm.resolution_note.trim(),
             new_password: processForm.status === "resolved" ? processForm.new_password.trim() : undefined
@@ -292,7 +292,7 @@ async function submitRequest() {
 }
 
 function goReports() {
-    router.push("/admin/reports");
+    router.push("/moderation/reports");
 }
 
 watch(page, () => {

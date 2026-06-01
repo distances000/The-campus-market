@@ -7,7 +7,12 @@ const JWT_SECRET = process.env.JWT_SECRET || "campus-market-secret-key-2026";
 
 function generateToken(user) {
     return jwt.sign(
-        { id: user.id, username: user.username, is_admin: !!user.is_admin },
+        {
+            id: user.id,
+            username: user.username,
+            is_admin: !!user.is_admin,
+            can_moderate: !!user.can_moderate
+        },
         JWT_SECRET,
         { expiresIn: "7d" }
     );

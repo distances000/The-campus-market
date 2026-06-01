@@ -1,48 +1,54 @@
-﻿<template>
-    <div class="admin-shell">
-        <aside class="admin-sidebar">
-            <div class="admin-brand">
-                <div class="admin-brand-mark">A</div>
-                <div class="admin-brand-copy">
-                    <div class="admin-brand-eyebrow">管理员后台</div>
-                    <div class="admin-brand-title">校园集市</div>
+<template>
+    <div class="moderation-shell">
+        <aside class="moderation-sidebar">
+            <div class="moderation-brand">
+                <div class="moderation-brand-mark">M</div>
+                <div class="moderation-brand-copy">
+                    <div class="moderation-brand-eyebrow">违规处理台</div>
+                    <div class="moderation-brand-title">校园集市</div>
                 </div>
             </div>
 
-            <div class="admin-account">
+            <div class="moderation-account">
                 <el-avatar :size="52">{{ profileInitial }}</el-avatar>
-                <div class="admin-account-copy">
-                    <div class="admin-account-name">{{ displayName }}</div>
-                    <div class="admin-account-meta">当前账号拥有管理员权限</div>
+                <div class="moderation-account-copy">
+                    <div class="moderation-account-name">{{ displayName }}</div>
+                    <div class="moderation-account-meta">当前账号具备违规处理权限</div>
                 </div>
             </div>
 
-            <nav class="admin-nav">
-                <router-link to="/admin/dashboard" class="admin-nav-item" :class="{ active: route.path === '/admin/dashboard' }">
-                    <span class="admin-nav-label">管理概览</span>
-                    <span class="admin-nav-desc">查看平台的整体状态与关键指标</span>
+            <nav class="moderation-nav">
+                <router-link
+                    v-for="item in navItems"
+                    :key="item.path"
+                    :to="item.path"
+                    class="moderation-nav-item"
+                    :class="{ active: route.path === item.path }"
+                >
+                    <span class="moderation-nav-label">{{ item.label }}</span>
+                    <span class="moderation-nav-desc">{{ item.description }}</span>
                 </router-link>
             </nav>
 
-            <div class="admin-sidebar-footer">
+            <div class="moderation-sidebar-footer">
                 <el-button type="primary" style="width: 100%" @click="goFront">返回前台</el-button>
                 <el-button plain style="width: 100%" @click="goProfile">个人中心</el-button>
             </div>
         </aside>
 
-        <div class="admin-main">
-            <header class="admin-topbar">
+        <div class="moderation-main">
+            <header class="moderation-topbar">
                 <div>
-                    <div class="admin-topbar-eyebrow">系统管理</div>
+                    <div class="moderation-topbar-eyebrow">违规审核</div>
                     <h1>{{ pageTitle }}</h1>
                 </div>
-                <div class="admin-topbar-actions">
-                    <el-tag type="info">管理员</el-tag>
+                <div class="moderation-topbar-actions">
+                    <el-tag type="info">处理权限</el-tag>
                     <el-button text @click="goFront">返回前台</el-button>
                 </div>
             </header>
 
-            <main class="admin-content">
+            <main class="moderation-content">
                 <router-view />
             </main>
         </div>
@@ -58,9 +64,22 @@ const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
 
-const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "管理员");
-const profileInitial = computed(() => (displayName.value || "A").slice(0, 1));
-const pageTitle = computed(() => route.meta?.title || "管理员后台");
+const navItems = [
+    {
+        path: "/moderation/reports",
+        label: "举报管理",
+        description: "处理商品和帖子举报"
+    },
+    {
+        path: "/moderation/password-resets",
+        label: "密码重置",
+        description: "审核申请并设置临时密码"
+    }
+];
+
+const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "处理员");
+const profileInitial = computed(() => (displayName.value || "M").slice(0, 1));
+const pageTitle = computed(() => route.meta?.title || "违规处理台");
 
 function goFront() {
     router.push("/home");
@@ -72,7 +91,7 @@ function goProfile() {
 </script>
 
 <style scoped>
-.admin-shell {
+.moderation-shell {
     min-height: 100vh;
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
@@ -80,7 +99,7 @@ function goProfile() {
     padding: 20px;
 }
 
-.admin-sidebar {
+.moderation-sidebar {
     position: sticky;
     top: 20px;
     align-self: start;
@@ -90,49 +109,49 @@ function goProfile() {
     padding: 20px;
     border-radius: 32px;
     background:
-        radial-gradient(circle at top right, rgba(214, 227, 255, 0.62), transparent 34%),
+        radial-gradient(circle at top right, rgba(255, 233, 196, 0.66), transparent 34%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 243, 251, 0.92));
     border: 1px solid rgba(194, 199, 208, 0.22);
     box-shadow: var(--shadow-lg);
 }
 
-.admin-brand {
+.moderation-brand {
     display: flex;
     align-items: center;
     gap: 14px;
 }
 
-.admin-brand-mark {
+.moderation-brand-mark {
     width: 48px;
     height: 48px;
     border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--primary) 0%, #6f7fd6 100%);
+    background: linear-gradient(135deg, #8f4e00 0%, #c97a00 100%);
     color: #fff;
     font-size: 18px;
     font-weight: 800;
     box-shadow: var(--shadow-md);
 }
 
-.admin-brand-eyebrow,
-.admin-topbar-eyebrow {
+.moderation-brand-eyebrow,
+.moderation-topbar-eyebrow {
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--primary);
+    color: #8f4e00;
 }
 
-.admin-brand-title {
+.moderation-brand-title {
     margin-top: 4px;
     font-size: 20px;
     font-weight: 800;
     letter-spacing: -0.02em;
 }
 
-.admin-account {
+.moderation-account {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -142,29 +161,29 @@ function goProfile() {
     border: 1px solid rgba(194, 199, 208, 0.18);
 }
 
-.admin-account-copy {
+.moderation-account-copy {
     min-width: 0;
 }
 
-.admin-account-name {
+.moderation-account-name {
     font-size: 15px;
     font-weight: 700;
 }
 
-.admin-account-meta {
+.moderation-account-meta {
     margin-top: 4px;
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-tertiary);
 }
 
-.admin-nav {
+.moderation-nav {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-.admin-nav-item {
+.moderation-nav-item {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -176,42 +195,42 @@ function goProfile() {
     transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
-.admin-nav-item:hover {
+.moderation-nav-item:hover {
     transform: translateY(-1px);
-    background: rgba(240, 245, 255, 0.9);
+    background: rgba(255, 244, 217, 0.88);
     box-shadow: var(--shadow);
 }
 
-.admin-nav-item.active {
-    color: var(--primary);
-    background: rgba(214, 227, 255, 0.9);
-    box-shadow: inset 0 0 0 1px rgba(65, 95, 145, 0.12);
+.moderation-nav-item.active {
+    color: #8f4e00;
+    background: rgba(255, 232, 196, 0.9);
+    box-shadow: inset 0 0 0 1px rgba(143, 78, 0, 0.12);
 }
 
-.admin-nav-label {
+.moderation-nav-label {
     font-size: 14px;
     font-weight: 700;
 }
 
-.admin-nav-desc {
+.moderation-nav-desc {
     font-size: 12px;
     line-height: 1.45;
     color: inherit;
     opacity: 0.8;
 }
 
-.admin-sidebar-footer {
+.moderation-sidebar-footer {
     display: flex;
     flex-direction: column;
     gap: 8px;
     margin-top: auto;
 }
 
-.admin-main {
+.moderation-main {
     min-width: 0;
 }
 
-.admin-topbar {
+.moderation-topbar {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -224,61 +243,61 @@ function goProfile() {
     box-shadow: var(--shadow);
 }
 
-.admin-topbar h1 {
+.moderation-topbar h1 {
     margin-top: 6px;
     font-size: 28px;
     font-weight: 800;
     letter-spacing: -0.03em;
 }
 
-.admin-topbar-actions {
+.moderation-topbar-actions {
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
 }
 
-.admin-content {
+.moderation-content {
     min-width: 0;
 }
 
 @media (max-width: 960px) {
-    .admin-shell {
+    .moderation-shell {
         grid-template-columns: 1fr;
     }
 
-    .admin-sidebar {
+    .moderation-sidebar {
         position: static;
     }
 }
 
 @media (max-width: 640px) {
-    .admin-shell {
+    .moderation-shell {
         padding: 12px;
         gap: 12px;
     }
 
-    .admin-sidebar,
-    .admin-topbar {
+    .moderation-sidebar,
+    .moderation-topbar {
         border-radius: 24px;
     }
 
-    .admin-nav {
+    .moderation-nav {
         overflow-x: auto;
         flex-direction: row;
         padding-bottom: 4px;
     }
 
-    .admin-nav-item {
+    .moderation-nav-item {
         min-width: 220px;
         flex-shrink: 0;
     }
 
-    .admin-topbar {
+    .moderation-topbar {
         flex-direction: column;
     }
 
-    .admin-topbar h1 {
+    .moderation-topbar h1 {
         font-size: 24px;
     }
 }

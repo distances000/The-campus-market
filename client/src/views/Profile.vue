@@ -20,21 +20,17 @@
                     </div>
                 </div>
 
-                <div class="profile-admin-actions">
-                    <template v-if="userStore.user?.is_admin">
-                        <el-button size="small" type="primary" @click="goAdminReports">举报后台</el-button>
-                        <el-button size="small" plain @click="goAdminPasswordResets">密码重置工单</el-button>
-                    </template>
-                    <el-button
-                        v-else
-                        size="small"
-                        type="warning"
-                        plain
-                        :loading="bootstrappingAdmin"
-                        @click="handleBootstrapAdmin"
-                    >
-                        初始化管理员
+                <div v-if="hasBackendAccess" class="profile-admin-actions">
+                    <el-button v-if="userStore.user?.is_admin" size="small" type="primary" @click="goAdminDashboard">
+                        管理后台
                     </el-button>
+                    <el-button v-if="canModerate" size="small" plain @click="goModerationReports">
+                        违规处理台
+                    </el-button>
+                </div>
+
+                <div v-else class="profile-access-note">
+                    当前账号未分配后台权限，仅可使用普通用户功能。
                 </div>
 
                 <div v-if="userStore.user?.must_change_password" class="security-banner">
@@ -247,7 +243,6 @@ import { ElMessage, ElMessageBox } from "../utils/message";
 import { Goods, Star } from "../components/element-icons";
 import { useUserStore } from "../stores/user";
 import { logout as logoutApi, resetPassword, updateMe } from "../api/auth";
-import { bootstrapAdmin } from "../api/reports";
 import { getMyFavorites, getMyProducts, toggleFavorite, updateProduct } from "../api/products";
 import { getProductStatusMeta } from "../utils/product";
 import { CAMPUS_OPTIONS } from "../utils/options";
@@ -263,7 +258,6 @@ const passwordSaving = ref(false);
 const activeTab = ref("products");
 const myProducts = ref([]);
 const favoriteProducts = ref([]);
-const bootstrappingAdmin = ref(false);
 
 const campusOptions = CAMPUS_OPTIONS;
 const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "" });
@@ -271,6 +265,8 @@ const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPas
 
 const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "未登录用户");
 const profileInitial = computed(() => (displayName.value || "U")[0]);
+const hasBackendAccess = computed(() => !!(userStore.user?.is_admin || userStore.user?.can_moderate));
+const canModerate = computed(() => !!(userStore.user?.is_admin || userStore.user?.can_moderate));
 const defImg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3C/svg%3E";
 
 function getImg(product) {
@@ -303,12 +299,12 @@ function openEditDialog() {
     showEdit.value = true;
 }
 
-function goAdminReports() {
-    router.push("/admin/reports");
+function goAdminDashboard() {
+    router.push("/admin/dashboard");
 }
 
-function goAdminPasswordResets() {
-    router.push("/admin/password-resets");
+function goModerationReports() {
+    router.push("/moderation/reports");
 }
 
 async function handleSave() {
@@ -353,24 +349,6 @@ async function handleResetPassword() {
         }
     } finally {
         passwordSaving.value = false;
-    }
-}
-
-async function handleBootstrapAdmin() {
-    try {
-        await ElMessageBox.confirm("系统将把当前账号初始化为管理员，是否继续？", "管理员初始化", { type: "warning" });
-    } catch {
-        return;
-    }
-
-    bootstrappingAdmin.value = true;
-    try {
-        const response = await bootstrapAdmin();
-        userStore.setAuth(response.data.token, response.data.user);
-        ElMessage.success("管理员初始化成功");
-        router.push("/admin/reports");
-    } finally {
-        bootstrappingAdmin.value = false;
     }
 }
 
@@ -544,6 +522,17 @@ watch(() => route.query.changePassword, (value) => {
     justify-content: flex-end;
     gap: 8px;
     margin-top: 10px;
+}
+
+.profile-access-note {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(237, 241, 248, 0.95);
+    border: 1px solid rgba(194, 199, 208, 0.2);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-secondary);
 }
 
 .security-banner {

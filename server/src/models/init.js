@@ -29,11 +29,13 @@ async function initDatabase() {
             bio VARCHAR(255) NOT NULL DEFAULT '',
             phone VARCHAR(32) NOT NULL DEFAULT '',
             is_admin TINYINT(1) NOT NULL DEFAULT 0,
+            can_moderate TINYINT(1) NOT NULL DEFAULT 0,
             must_change_password TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY uq_users_username (username),
-            KEY idx_users_admin (is_admin)
+            KEY idx_users_admin (is_admin),
+            KEY idx_users_moderator (can_moderate)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
         CREATE TABLE IF NOT EXISTS products (
@@ -223,6 +225,7 @@ async function initDatabase() {
     `);
 
     await ensureColumn(db, "users", "must_change_password", "TINYINT(1) NOT NULL DEFAULT 0");
+    await ensureColumn(db, "users", "can_moderate", "TINYINT(1) NOT NULL DEFAULT 0");
     await ensureColumn(db, "password_reset_requests", "resolution_note", "TEXT NOT NULL");
 
     console.log("Database initialized.");

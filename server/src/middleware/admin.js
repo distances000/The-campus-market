@@ -15,6 +15,7 @@ async function adminMiddleware(req, res, next) {
     }
 
     req.user.is_admin = true;
+    req.user.can_moderate = !!user.can_moderate;
     next();
 }
 

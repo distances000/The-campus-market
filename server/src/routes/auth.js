@@ -29,6 +29,7 @@ async function withCredit(db, user) {
     return {
         ...user,
         is_admin: !!user.is_admin,
+        can_moderate: !!user.can_moderate,
         must_change_password: !!user.must_change_password,
         credit: {
             review_count: credit.review_count || 0,
@@ -38,7 +39,7 @@ async function withCredit(db, user) {
 }
 
 function getPublicUserFields() {
-    return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, must_change_password, created_at";
+    return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, can_moderate, must_change_password, created_at";
 }
 
 async function getPublicUserById(db, userId) {

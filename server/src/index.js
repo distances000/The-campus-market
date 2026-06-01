@@ -24,6 +24,8 @@ app.use("/api/posts", require("./routes/posts"));
 app.use("/api/messages", require("./routes/messages"));
 app.use("/api/reports", require("./routes/reports"));
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/moderation", require("./routes/moderation"));
+app.use("/api/setup", require("./routes/setup"));
 app.use("/api/upload", require("./routes/upload"));
 
 app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));

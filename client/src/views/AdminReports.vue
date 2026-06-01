@@ -164,7 +164,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "../utils/message";
-import { getAdminReport, getAdminReports, updateAdminReport } from "../api/admin";
+import { getModerationReport, getModerationReports, updateModerationReport } from "../api/moderation";
 import { REPORT_REASON_MAP } from "../utils/report";
 
 const router = useRouter();
@@ -271,7 +271,7 @@ function syncProcessForm(report) {
 async function fetchReports() {
     loading.value = true;
     try {
-        const response = await getAdminReports({
+        const response = await getModerationReports({
             page: page.value,
             page_size: pageSize.value,
             status: filters.status || undefined,
@@ -309,7 +309,7 @@ function handlePageSizeChange(nextPageSize) {
 
 async function openDetail(report) {
     try {
-        const response = await getAdminReport(report.id);
+        const response = await getModerationReport(report.id);
         detailReport.value = response.data;
         syncProcessForm(response.data);
         drawerVisible.value = true;
@@ -329,7 +329,7 @@ async function submitReport() {
 
     saving.value = true;
     try {
-        const response = await updateAdminReport(detailReport.value.id, {
+        const response = await updateModerationReport(detailReport.value.id, {
             status: processForm.status,
             handled_action: processForm.status === "resolved" ? processForm.handled_action : "none",
             resolution_note: processForm.resolution_note
@@ -345,7 +345,7 @@ async function submitReport() {
 }
 
 function goPasswordResets() {
-    router.push("/admin/password-resets");
+    router.push("/moderation/password-resets");
 }
 
 watch(page, () => {
