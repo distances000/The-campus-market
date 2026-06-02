@@ -295,6 +295,7 @@ const BASE_TABLES = [
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 user_id BIGINT UNSIGNED NOT NULL,
                 username_snapshot VARCHAR(64) NOT NULL,
+                request_email VARCHAR(128) NOT NULL,
                 request_phone VARCHAR(32) NOT NULL,
                 reason TEXT NOT NULL,
                 status VARCHAR(32) NOT NULL DEFAULT 'pending',
@@ -414,7 +415,7 @@ const SCHEMA_EXPECTATIONS = [
     },
     {
         table: "password_reset_requests",
-        columns: ["resolution_note", "handled_by", "handled_at", "updated_at"],
+        columns: ["request_email", "resolution_note", "handled_by", "handled_at", "updated_at"],
         indexes: ["idx_password_reset_requests_user", "idx_password_reset_requests_status", "idx_password_reset_requests_created"]
     }
 ];
@@ -677,6 +678,7 @@ const migrations = [
             await ctx.ensureColumn("password_reset_requests", "resolution_note", "TEXT NULL");
             await ctx.ensureColumn("password_reset_requests", "handled_by", "BIGINT UNSIGNED NULL");
             await ctx.ensureColumn("password_reset_requests", "handled_at", "DATETIME NULL");
+            await ctx.ensureColumn("password_reset_requests", "request_email", "VARCHAR(128) NOT NULL DEFAULT ''");
             await ctx.ensureColumn(
                 "password_reset_requests",
                 "updated_at",

@@ -192,7 +192,10 @@
                     <el-input v-model="editForm.bio" type="textarea" :rows="3" />
                 </el-form-item>
                 <el-form-item label="手机号">
-                    <el-input v-model="editForm.phone" maxlength="11" placeholder="建议保留可用于找回密码的手机号" />
+                    <el-input v-model="editForm.phone" maxlength="11" placeholder="可选，便于联系" />
+                </el-form-item>
+                <el-form-item label="邮箱">
+                    <el-input v-model="editForm.email" placeholder="建议绑定可用于找回密码的邮箱" autocomplete="email" />
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -260,7 +263,7 @@ const myProducts = ref([]);
 const favoriteProducts = ref([]);
 
 const campusOptions = CAMPUS_OPTIONS;
-const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "" });
+const editForm = reactive({ nickname: "", campus: "", bio: "", phone: "", email: "" });
 const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPassword: "" });
 
 const displayName = computed(() => userStore.user?.nickname || userStore.user?.username || "未登录用户");
@@ -282,6 +285,7 @@ function syncEditForm() {
     editForm.campus = userStore.user?.campus || "";
     editForm.bio = userStore.user?.bio || "";
     editForm.phone = userStore.user?.phone || "";
+    editForm.email = userStore.user?.email || "";
 }
 
 function resetEditForm() {

@@ -1,11 +1,11 @@
-﻿<template>
+<template>
     <div class="auth-page forgot-page">
         <div class="forgot-shell">
             <section class="hero-card">
                 <div class="hero-copy">
                     <div class="hero-eyebrow">账号安全</div>
                     <h1>找回密码</h1>
-                    <p>当前找回密码仍走人工审核；注册阶段已支持邮箱验证码。你可以提交申请单，管理员核验后会重置一个临时密码，首次登录后系统会强制你修改密码。</p>
+                    <p>当前找回密码仍走人工审核，需填写注册用户名和绑定邮箱。管理员核验后会重置一个临时密码，首次登录后系统会强制你修改密码。</p>
                 </div>
                 <div class="hero-steps">
                     <div class="step-item" v-for="step in steps" :key="step.title">
@@ -19,15 +19,15 @@
                 <section class="form-card">
                     <div class="section-head">
                         <h2>提交找回申请</h2>
-                        <p>请填写注册用户名和已绑定手机号。管理员会按照申请顺序人工处理。</p>
+                        <p>请填写注册用户名和已绑定邮箱。管理员会按照申请顺序人工处理。</p>
                     </div>
 
                     <el-form ref="requestFormRef" :model="requestForm" :rules="requestRules" label-position="top" size="large">
                         <el-form-item label="用户名" prop="username">
                             <el-input v-model="requestForm.username" placeholder="请输入注册用户名" autocomplete="username" />
                         </el-form-item>
-                        <el-form-item label="绑定手机号" prop="phone">
-                            <el-input v-model="requestForm.phone" maxlength="11" placeholder="请输入 11 位手机号" autocomplete="tel" />
+                        <el-form-item label="绑定邮箱" prop="email">
+                            <el-input v-model="requestForm.email" placeholder="请输入已绑定的邮箱地址" autocomplete="email" />
                         </el-form-item>
                         <el-form-item label="情况说明" prop="reason">
                             <el-input
@@ -36,7 +36,7 @@
                                 :rows="4"
                                 maxlength="500"
                                 show-word-limit
-                                placeholder="例如：手机丢失、长时间未登录、当前设备无法取回原密码"
+                                placeholder="例如：邮箱可用但忘记密码、长期未登录、当前设备无法取回原密码"
                             />
                         </el-form-item>
                         <el-button type="primary" :loading="submitting" style="width: 100%" @click="handleSubmitRequest">
@@ -67,8 +67,8 @@
                         <el-form-item label="用户名" prop="username">
                             <el-input v-model="statusForm.username" placeholder="请输入注册用户名" autocomplete="username" />
                         </el-form-item>
-                        <el-form-item label="绑定手机号" prop="phone">
-                            <el-input v-model="statusForm.phone" maxlength="11" placeholder="请输入 11 位手机号" autocomplete="tel" />
+                        <el-form-item label="绑定邮箱" prop="email">
+                            <el-input v-model="statusForm.email" placeholder="请输入已绑定的邮箱地址" autocomplete="email" />
                         </el-form-item>
                         <el-button plain :loading="querying" style="width: 100%" @click="handleQueryStatus">
                             查询最新进度
@@ -116,13 +116,13 @@ const statusResult = ref(null);
 
 const requestForm = reactive({
     username: "",
-    phone: "",
+    email: "",
     reason: ""
 });
 
 const statusForm = reactive({
     username: "",
-    phone: ""
+    email: ""
 });
 
 const redirectTo = computed(() => (typeof route.query.redirect === "string" ? route.query.redirect : "/home"));
@@ -130,15 +130,15 @@ const loginLink = computed(() => ({ path: "/login", query: { redirect: redirectT
 const registerLink = computed(() => ({ path: "/register", query: { redirect: redirectTo.value } }));
 
 const steps = [
-    { title: "1. 提交申请", description: "填写用户名、绑定手机号和情况说明。" },
+    { title: "1. 提交申请", description: "填写用户名、绑定邮箱和情况说明。" },
     { title: "2. 人工核验", description: "管理员按申请单核对身份信息并确认风险。" },
     { title: "3. 重置临时密码", description: "审核通过后管理员设置临时密码并更新处理说明。" },
     { title: "4. 首次登录改密", description: "使用临时密码登录后，系统会强制你立即修改密码。" }
 ];
 
-function validatePhone(rule, value, callback) {
-    if (!/^1\d{10}$/.test(String(value || "").trim())) {
-        callback(new Error("请输入正确的 11 位手机号"));
+function validateEmail(rule, value, callback) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())) {
+        callback(new Error("请输入正确的邮箱地址"));
         return;
     }
     callback();
@@ -146,7 +146,7 @@ function validatePhone(rule, value, callback) {
 
 const requestRules = {
     username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
-    phone: [{ required: true, validator: validatePhone, trigger: "blur" }],
+    email: [{ required: true, validator: validateEmail, trigger: "blur" }],
     reason: [
         {
             validator: (rule, value, callback) => {
@@ -163,7 +163,7 @@ const requestRules = {
 
 const statusRules = {
     username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
-    phone: [{ required: true, validator: validatePhone, trigger: "blur" }]
+    email: [{ required: true, validator: validateEmail, trigger: "blur" }]
 };
 
 function getStatusMeta(status) {
@@ -197,13 +197,13 @@ async function handleSubmitRequest() {
     try {
         const response = await createPasswordResetRequest({
             username: requestForm.username.trim(),
-            phone: requestForm.phone.trim(),
+            email: requestForm.email.trim(),
             reason: requestForm.reason.trim()
         });
         latestRequest.value = response.data;
         statusResult.value = response.data;
         statusForm.username = requestForm.username;
-        statusForm.phone = requestForm.phone;
+        statusForm.email = requestForm.email;
         ElMessage.success("找回申请已提交");
     } finally {
         submitting.value = false;
@@ -220,7 +220,7 @@ async function handleQueryStatus() {
     try {
         const response = await getPasswordResetStatus({
             username: statusForm.username.trim(),
-            phone: statusForm.phone.trim()
+            email: statusForm.email.trim()
         });
         statusResult.value = response.data;
     } finally {

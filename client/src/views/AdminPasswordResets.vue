@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <div class="admin-page">
         <div class="page-container admin-container">
             <section class="admin-hero">
@@ -27,7 +27,7 @@
                     </el-select>
                     <el-input
                         v-model="filters.keyword"
-                        placeholder="搜索用户名、手机号或说明"
+                        placeholder="搜索用户名、邮箱或说明"
                         clearable
                         @keyup.enter="handleSearch"
                     />
@@ -47,8 +47,8 @@
                             <div class="table-subtitle">用户名：{{ row.username_snapshot }}</div>
                         </template>
                     </el-table-column>
-                    <el-table-column label="手机号" width="160">
-                        <template #default="{ row }">{{ row.request_phone }}</template>
+                    <el-table-column label="邮箱" width="220">
+                        <template #default="{ row }">{{ row.request_email }}</template>
                     </el-table-column>
                     <el-table-column label="状态" width="120">
                         <template #default="{ row }">
@@ -93,8 +93,8 @@
                     </div>
                     <div class="drawer-meta">
                         <span>用户名：{{ detailRequest.username_snapshot }}</span>
-                        <span>申请手机号：{{ detailRequest.request_phone }}</span>
-                        <span>绑定手机号：{{ detailRequest.bound_phone || "未绑定" }}</span>
+                        <span>申请邮箱：{{ detailRequest.request_email }}</span>
+                        <span>绑定邮箱：{{ detailRequest.bound_email || "未绑定" }}</span>
                         <span>提交时间：{{ formatTime(detailRequest.created_at) }}</span>
                     </div>
                     <p class="drawer-text">{{ detailRequest.reason || "未填写情况说明" }}</p>
@@ -124,7 +124,7 @@
                                 :rows="4"
                                 maxlength="500"
                                 show-word-limit
-                                placeholder="例如：已电话核验身份，已重置临时密码，请首次登录后立即修改密码"
+                                placeholder="例如：已核验邮箱归属，已重置临时密码，请首次登录后立即修改密码"
                             />
                         </el-form-item>
                     </el-form>

@@ -267,7 +267,7 @@ router.get("/me", authMiddleware, async (req, res) => {
 });
 
 router.put("/me", authMiddleware, async (req, res) => {
-    const { nickname, avatar_url, campus, bio, phone } = req.body;
+    const { nickname, avatar_url, campus, bio, phone, email } = req.body;
     const db = getDb();
     const fields = [];
     const values = [];
@@ -295,6 +295,20 @@ router.put("/me", authMiddleware, async (req, res) => {
         }
         fields.push("phone=?");
         values.push(normalizedPhone);
+    }
+    if (email !== undefined) {
+        const normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+            return res.json({ code: 400, message: "请输入正确的邮箱地址" });
+        }
+        if (normalizedEmail) {
+            const existingEmail = await db.prepare("SELECT id FROM users WHERE email=? AND id<>?").get(normalizedEmail, req.user.id);
+            if (existingEmail) {
+                return res.json({ code: 400, message: "邮箱已被其他账号绑定" });
+            }
+        }
+        fields.push("email=?");
+        values.push(normalizedEmail || null);
     }
 
     if (!fields.length) {
@@ -349,26 +363,29 @@ router.post("/reset-password", authMiddleware, async (req, res) => {
 
 router.post("/forgot-password/request", async (req, res) => {
     const username = normalizeText(req.body.username);
-    const phone = normalizePhone(req.body.phone);
+    const email = normalizeEmail(req.body.email);
     const reason = normalizeText(req.body.reason);
 
-    if (!username || !phone) {
-        return res.json({ code: 400, message: "请填写用户名和手机号" });
+    if (!username || !email) {
+        return res.json({ code: 400, message: "请填写用户名和邮箱地址" });
     }
-    if (!isValidPhone(phone)) {
-        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+    if (!isValidEmail(email)) {
+        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
     }
     if (reason.length > 500) {
         return res.json({ code: 400, message: "情况说明不能超过 500 字" });
     }
 
     const db = getDb();
-    const user = await db.prepare("SELECT id, username, nickname, phone FROM users WHERE username=?").get(username);
+    const user = await db.prepare("SELECT id, username, email FROM users WHERE username=?").get(username);
     if (!user) {
         return res.json({ code: 404, message: "账号不存在" });
     }
-    if (user.phone && normalizePhone(user.phone) !== phone) {
-        return res.json({ code: 400, message: "手机号与账号绑定信息不一致" });
+    if (!user.email) {
+        return res.json({ code: 400, message: "当前账号尚未绑定邮箱，请先到个人中心绑定邮箱" });
+    }
+    if (normalizeEmail(user.email) !== email) {
+        return res.json({ code: 400, message: "邮箱与账号绑定信息不一致" });
     }
 
     const pendingRequest = await db.prepare(`
@@ -379,22 +396,23 @@ router.post("/forgot-password/request", async (req, res) => {
         LIMIT 1
     `).get(user.id);
     if (pendingRequest) {
-        return res.json({ code: 400, message: "你已有待处理的找回申请，请先等待处理结果" });
+        return res.json({ code: 400, message: "你已存在待处理的找回申请，请先等待处理结果" });
     }
 
     const result = await db.prepare(`
         INSERT INTO password_reset_requests (
             user_id,
             username_snapshot,
+            request_email,
             request_phone,
             resolution_note,
             reason,
             status
-        ) VALUES (?, ?, ?, ?, ?, 'pending')
-    `).run(user.id, user.username, phone, "", reason);
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    `).run(user.id, user.username, email, "", "", reason);
 
     const requestInfo = await db.prepare(`
-        SELECT id, user_id, username_snapshot, request_phone, reason, status, resolution_note, created_at, handled_at
+        SELECT id, user_id, username_snapshot, request_email, reason, status, resolution_note, created_at, handled_at
         FROM password_reset_requests
         WHERE id=?
     `).get(result.lastInsertRowid);
@@ -408,10 +426,13 @@ router.post("/forgot-password/request", async (req, res) => {
 
 router.post("/forgot-password/status", async (req, res) => {
     const username = normalizeText(req.body.username);
-    const phone = normalizePhone(req.body.phone);
+    const email = normalizeEmail(req.body.email);
 
-    if (!username || !phone) {
-        return res.json({ code: 400, message: "请填写用户名和手机号" });
+    if (!username || !email) {
+        return res.json({ code: 400, message: "请填写用户名和邮箱地址" });
+    }
+    if (!isValidEmail(email)) {
+        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
     }
 
     const db = getDb();
@@ -420,7 +441,7 @@ router.post("/forgot-password/status", async (req, res) => {
             pr.id,
             pr.user_id,
             pr.username_snapshot,
-            pr.request_phone,
+            pr.request_email,
             pr.reason,
             pr.status,
             pr.resolution_note,
@@ -429,10 +450,10 @@ router.post("/forgot-password/status", async (req, res) => {
             handler.nickname AS handled_by_name
         FROM password_reset_requests pr
         LEFT JOIN users handler ON handler.id=pr.handled_by
-        WHERE pr.username_snapshot=? AND pr.request_phone=?
+        WHERE pr.username_snapshot=? AND pr.request_email=?
         ORDER BY pr.id DESC
         LIMIT 1
-    `).get(username, phone);
+    `).get(username, email);
 
     if (!requestInfo) {
         return res.json({ code: 404, message: "未找到对应的找回申请" });

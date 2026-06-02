@@ -242,8 +242,8 @@ router.get("/password-resets", async (req, res) => {
         params.push(status);
     }
     if (keyword) {
-        conditions.push("(pr.username_snapshot LIKE ? OR pr.request_phone LIKE ? OR requester.nickname LIKE ? OR pr.reason LIKE ?)");
-        params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+        conditions.push("(pr.username_snapshot LIKE ? OR pr.request_email LIKE ? OR requester.email LIKE ? OR requester.nickname LIKE ? OR pr.reason LIKE ?)");
+        params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -252,7 +252,7 @@ router.get("/password-resets", async (req, res) => {
         SELECT
             pr.*,
             requester.nickname AS requester_name,
-            requester.phone AS bound_phone,
+            requester.email AS bound_email,
             handler.nickname AS handled_by_name
         ${getPasswordResetBaseSql(whereClause)}
         ORDER BY
@@ -283,7 +283,7 @@ router.get("/password-resets/:id", async (req, res) => {
             pr.*,
             requester.nickname AS requester_name,
             requester.username AS requester_username,
-            requester.phone AS bound_phone,
+            requester.email AS bound_email,
             requester.must_change_password,
             handler.nickname AS handled_by_name
         ${getPasswordResetBaseSql("WHERE pr.id=?")}
@@ -370,7 +370,7 @@ router.patch("/password-resets/:id", async (req, res) => {
             pr.*,
             requester.nickname AS requester_name,
             requester.username AS requester_username,
-            requester.phone AS bound_phone,
+            requester.email AS bound_email,
             requester.must_change_password,
             handler.nickname AS handled_by_name
         ${getPasswordResetBaseSql("WHERE pr.id=?")}
