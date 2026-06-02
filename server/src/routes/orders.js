@@ -3,6 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { createAppError, getUserFacingMessage } = require("../utils/error");
+const { buildRequestMeta, logInfo, logWarn } = require("../utils/logger");
 const {
     ensureOptionalEnum,
     ensureOptionalText,
@@ -88,6 +89,10 @@ router.post("/", authMiddleware, async (req, res) => {
             return orderResult.lastInsertRowid;
         });
     } catch (error) {
+        logWarn("order.create_failed", "下单失败", buildRequestMeta(req, {
+            product_id: productId,
+            reason: getUserFacingMessage(error, "下单失败，请稍后再试")
+        }));
         return res.status(error.status || 400).json({
             code: error.code || error.status || 400,
             message: getUserFacingMessage(error, "下单失败，请稍后再试")
@@ -122,6 +127,12 @@ router.post("/", authMiddleware, async (req, res) => {
         extra: { product_id: product.id }
     });
 
+    logInfo("order.created", "订单创建成功", buildRequestMeta(req, {
+        order_id: order.id,
+        product_id: product.id,
+        seller_id: product.seller_id,
+        buyer_id: req.user.id
+    }));
     res.json({ code: 200, message: "下单成功", data: order });
 });
 
@@ -210,6 +221,10 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
             await tx.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
         });
     } catch (error) {
+        logWarn("order.complete_failed", "确认完成订单失败", buildRequestMeta(req, {
+            order_id: orderId,
+            reason: getUserFacingMessage(error, "订单完成失败，请稍后再试")
+        }));
         return res.status(error.status || 400).json({
             code: error.code || error.status || 400,
             message: getUserFacingMessage(error, "订单完成失败，请稍后再试")
@@ -229,6 +244,12 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
         extra: { product_id: order.product_id }
     });
 
+    logInfo("order.completed", "订单已确认完成", buildRequestMeta(req, {
+        order_id: order.id,
+        product_id: order.product_id,
+        seller_id: order.seller_id,
+        buyer_id: order.buyer_id
+    }));
     res.json({ code: 200, message: "订单已完成" });
 });
 
@@ -259,6 +280,10 @@ router.post("/:id/cancel", authMiddleware, async (req, res) => {
             await tx.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sold'").run(order.product_id);
         });
     } catch (error) {
+        logWarn("order.cancel_failed", "取消订单失败", buildRequestMeta(req, {
+            order_id: orderId,
+            reason: getUserFacingMessage(error, "订单取消失败，请稍后再试")
+        }));
         return res.status(error.status || 400).json({
             code: error.code || error.status || 400,
             message: getUserFacingMessage(error, "订单取消失败，请稍后再试")
@@ -279,6 +304,12 @@ router.post("/:id/cancel", authMiddleware, async (req, res) => {
         extra: { product_id: order.product_id }
     });
 
+    logInfo("order.cancelled", "订单已取消", buildRequestMeta(req, {
+        order_id: order.id,
+        product_id: order.product_id,
+        seller_id: order.seller_id,
+        buyer_id: order.buyer_id
+    }));
     res.json({ code: 200, message: "订单已取消" });
 });
 
@@ -334,6 +365,13 @@ router.post("/:id/review", authMiddleware, async (req, res) => {
         extra: { order_id: order.id, product_id: order.product_id }
     });
 
+    logInfo("order.review_created", "订单评价已提交", buildRequestMeta(req, {
+        order_id: order.id,
+        product_id: order.product_id,
+        reviewer_id: req.user.id,
+        reviewee_id: revieweeId,
+        rating: score
+    }));
     res.json({ code: 200, message: "评价成功", data: review });
 });
 

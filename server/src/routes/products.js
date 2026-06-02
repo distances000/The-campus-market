@@ -4,6 +4,7 @@ const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, getRemovedManagedUrls, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
+const { logError } = require("../utils/logger");
 const {
     ensureOptionalEnum,
     ensureOptionalText,
@@ -298,7 +299,10 @@ router.put("/:id", authMiddleware, async (req, res) => {
         try {
             await deleteManagedUploadsIfOrphan(db, getRemovedManagedUrls(previousImages, nextImages));
         } catch (error) {
-            console.error("Failed to cleanup replaced product images:", error);
+            logError("product.cleanup_failed", "替换商品图片后清理旧文件失败", error, {
+                product_id: productId,
+                user_id: req.user.id
+            });
         }
     }
     res.json({ code: 200, message: "商品已更新", data: p });
@@ -324,7 +328,10 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     try {
         await deleteManagedUploadsIfOrphan(db, normalizeImageList(product.images_json || "[]"));
     } catch (error) {
-        console.error("Failed to cleanup deleted product images:", error);
+        logError("product.cleanup_failed", "删除商品后清理图片失败", error, {
+            product_id: productId,
+            user_id: req.user.id
+        });
     }
     res.json({ code: 200, message: "商品已删除" });
 });

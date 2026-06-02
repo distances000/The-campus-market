@@ -8,6 +8,7 @@ const {
     sendVerificationEmail
 } = require("../services/email");
 const { getUserFacingMessage, logServerError } = require("../utils/error");
+const { buildRequestMeta, logError, logInfo, logWarn } = require("../utils/logger");
 
 const router = express.Router();
 
@@ -100,6 +101,7 @@ router.post("/register/send-email-code", async (req, res) => {
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+        logWarn("auth.email_code_rejected", "邮箱验证码发送被拒绝：邮箱已注册", buildRequestMeta(req, { email }));
         return res.json({ code: 400, message: "邮箱已被注册" });
     }
 
@@ -109,6 +111,10 @@ router.post("/register/send-email-code", async (req, res) => {
         const secondsSinceLastSent = Number.parseInt(latest.seconds_since_last_sent, 10);
         if (Number.isFinite(secondsSinceLastSent) && secondsSinceLastSent < cooldownSeconds) {
             const remainingSeconds = Math.max(1, cooldownSeconds - Math.max(0, secondsSinceLastSent));
+            logWarn("auth.email_code_rate_limited", "邮箱验证码发送过于频繁", buildRequestMeta(req, {
+                email,
+                remaining_seconds: remainingSeconds
+            }));
             return res.status(429).json({
                 code: 429,
                 message: `验证码发送过于频繁，请 ${remainingSeconds} 秒后再试`
@@ -141,6 +147,7 @@ router.post("/register/send-email-code", async (req, res) => {
         });
     } catch (error) {
         await db.prepare("DELETE FROM verification_codes WHERE id=?").run(result.lastInsertRowid);
+        logError("auth.email_code_send_failed", "邮箱验证码发送失败", error, buildRequestMeta(req, { email, purpose }));
         logServerError(error, "send register email code");
         return res.status(500).json({
             code: 500,
@@ -172,9 +179,11 @@ router.post("/register", async (req, res) => {
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
+        logWarn("auth.register_rejected", "注册被拒绝：用户名已存在", buildRequestMeta(req, { username }));
         return res.json({ code: 400, message: "用户名已存在" });
     }
     if (email && await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+        logWarn("auth.register_rejected", "注册被拒绝：邮箱已被注册", buildRequestMeta(req, { username, email }));
         return res.json({ code: 400, message: "邮箱已被注册" });
     }
 
@@ -185,6 +194,10 @@ router.post("/register", async (req, res) => {
     `).run(username, passwordHash, nickname, email || null);
 
     const user = await getPublicUserById(db, result.lastInsertRowid);
+    logInfo("auth.register_succeeded", "用户注册成功", buildRequestMeta(req, {
+        user_id: user.id,
+        username: user.username
+    }));
     return res.json({
         code: 200,
         message: "注册成功",
@@ -206,10 +219,15 @@ router.post("/login", async (req, res) => {
     const db = getDb();
     const user = await db.prepare("SELECT * FROM users WHERE username=?").get(username);
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+        logWarn("auth.login_failed", "登录失败：用户名或密码错误", buildRequestMeta(req, { username }));
         return res.json({ code: 400, message: "用户名或密码错误" });
     }
 
     const { password_hash, ...info } = user;
+    logInfo("auth.login_succeeded", "用户登录成功", buildRequestMeta(req, {
+        user_id: info.id,
+        username: info.username
+    }));
     return res.json({
         code: 200,
         message: "登录成功",
@@ -221,6 +239,7 @@ router.post("/login", async (req, res) => {
 });
 
 router.post("/logout", authMiddleware, async (req, res) => {
+    logInfo("auth.logout", "用户退出登录", buildRequestMeta(req));
     return res.json({ code: 200, message: "已退出登录" });
 });
 
@@ -322,6 +341,7 @@ router.post("/reset-password", authMiddleware, async (req, res) => {
     `).run(nextHash, req.user.id);
 
     const publicUser = await getPublicUserById(db, req.user.id);
+    logInfo("auth.password_reset_succeeded", "用户已修改密码", buildRequestMeta(req));
     return res.json({
         code: 200,
         message: "密码修改成功",
@@ -384,6 +404,10 @@ router.post("/forgot-password/request", async (req, res) => {
         FROM password_reset_requests
         WHERE id=?
     `).get(result.lastInsertRowid);
+    logInfo("auth.password_reset_requested", "用户提交找回密码申请", buildRequestMeta(req, {
+        request_id: requestInfo.id,
+        username
+    }));
 
     return res.json({
         code: 200,

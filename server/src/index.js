@@ -8,6 +8,7 @@ const { attachRealtimeServer } = require("./utils/realtime");
 const { getRuntimeConfig, validateRuntimeConfig, formatRuntimeSummary } = require("./config/runtime");
 const { UPLOAD_DIR, UPLOAD_PUBLIC_PREFIX } = require("./utils/upload");
 const { getErrorCode, getStatusCode, getUserFacingMessage, logServerError } = require("./utils/error");
+const { attachRequestContext, buildRequestMeta, logError, logInfo } = require("./utils/logger");
 const app = express();
 
 loadAppEnv();
@@ -24,6 +25,7 @@ if (!runtimeCheck.valid) {
 const PORT = runtimeConfig.port;
 
 app.use(cors());
+app.use(attachRequestContext);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(UPLOAD_PUBLIC_PREFIX, express.static(UPLOAD_DIR));
@@ -41,6 +43,7 @@ app.use("/api/upload", require("./routes/upload"));
 
 app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));
 app.use((err, req, res, next) => {
+    logError("http.unhandled_error", "请求处理发生未捕获异常", err, buildRequestMeta(req));
     logServerError(err, `${req.method} ${req.originalUrl}`);
     const status = getStatusCode(err, 500);
     const code = getErrorCode(err, status);
@@ -52,15 +55,16 @@ async function bootstrap() {
     await initDatabase();
     const server = http.createServer(app);
     attachRealtimeServer(server);
-    console.log("Runtime config:", formatRuntimeSummary(runtimeConfig));
-    server.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));
+    logInfo("server.runtime_config", "运行时配置已加载", { runtime: formatRuntimeSummary(runtimeConfig) });
+    server.listen(PORT, () => logInfo("server.started", "服务已启动", { port: PORT, base_url: `http://localhost:${PORT}` }));
 }
 
 bootstrap().catch((error) => {
     if (error && error.code === "ECONNREFUSED") {
-        console.error("Failed to bootstrap server: MySQL connection refused.");
-        console.error("Please start MySQL or set DATABASE_URL in server/.env or .env before running the server.");
+        logError("server.bootstrap_failed", "数据库连接被拒绝", error, {
+            hint: "请先启动 MySQL，或在 server/.env / .env 中配置 DATABASE_URL"
+        });
     }
-    console.error("Failed to bootstrap server:", error);
+    logError("server.bootstrap_failed", "服务启动失败", error);
     process.exit(1);
 });

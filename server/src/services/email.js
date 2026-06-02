@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const net = require("net");
 const tls = require("tls");
+const { logInfo } = require("../utils/logger");
 
 function normalizeText(value) {
     return String(value || "").trim();
@@ -247,7 +248,11 @@ async function sendVerificationEmail({ contact, code, purpose }) {
     const text = getVerificationEmailText({ code, purpose });
 
     if (provider === "console") {
-        console.log(`[EMAIL][${purpose}] ${contact}: ${code}`);
+        logInfo("email.console_code_generated", "控制台邮箱验证码已生成", {
+            purpose,
+            contact,
+            code
+        });
         return { provider, success: true };
     }
 

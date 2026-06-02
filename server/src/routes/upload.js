@@ -12,6 +12,7 @@ const {
     buildUploadUrl,
     UPLOAD_DIR
 } = require("../utils/upload");
+const { buildRequestMeta, logInfo, logWarn } = require("../utils/logger");
 
 const router = express.Router();
 
@@ -82,6 +83,11 @@ router.post("/", authMiddleware, withUpload(upload.single("file")), (req, res) =
         return res.json({ code: 400, message: "请选择要上传的图片" });
     }
 
+    logInfo("upload.single_succeeded", "单图上传成功", buildRequestMeta(req, {
+        filename: req.file.filename,
+        size: req.file.size
+    }));
+
     return res.json({
         code: 200,
         message: "图片上传成功",
@@ -101,6 +107,11 @@ router.post("/batch", authMiddleware, withUpload(upload.array("files", MAX_IMAGE
     if (!req.files || !req.files.length) {
         return res.json({ code: 400, message: "请选择要上传的图片" });
     }
+
+    logInfo("upload.batch_succeeded", "批量图片上传成功", buildRequestMeta(req, {
+        file_count: req.files.length,
+        filenames: req.files.map((file) => file.filename)
+    }));
 
     return res.json({
         code: 200,
@@ -123,6 +134,9 @@ router.post("/batch", authMiddleware, withUpload(upload.array("files", MAX_IMAGE
 router.use((error, req, res, next) => {
     if (error instanceof multer.MulterError) {
         if (error.code === "LIMIT_FILE_SIZE") {
+            logWarn("upload.rejected", "图片上传失败：文件过大", buildRequestMeta(req, {
+                multer_code: error.code
+            }));
             return res.status(400).json({
                 code: 400,
                 message: `单张图片不能超过 ${Math.floor(MAX_IMAGE_SIZE_BYTES / (1024 * 1024))}MB`
@@ -130,6 +144,9 @@ router.use((error, req, res, next) => {
         }
 
         if (error.code === "LIMIT_FILE_COUNT" || error.code === "LIMIT_UNEXPECTED_FILE") {
+            logWarn("upload.rejected", "图片上传失败：数量超限", buildRequestMeta(req, {
+                multer_code: error.code
+            }));
             return res.status(400).json({
                 code: 400,
                 message: `一次最多上传 ${MAX_IMAGE_COUNT} 张图片`
@@ -138,6 +155,10 @@ router.use((error, req, res, next) => {
     }
 
     if (error?.isUploadError) {
+        logWarn("upload.rejected", "图片上传失败：格式不支持或请求无效", buildRequestMeta(req, {
+            upload_error_code: error.code,
+            reason: error.message
+        }));
         return res.status(400).json({
             code: 400,
             message: error.message || "图片上传失败"

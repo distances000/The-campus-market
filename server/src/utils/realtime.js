@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { URL } = require("url");
 const { verifyToken } = require("../middleware/auth");
 const { getDb } = require("../config/db");
+const { logError } = require("./logger");
 
 const WS_PATH = "/ws";
 const MAGIC_WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -168,7 +169,9 @@ async function pollRealtimeEvents() {
 
         await cleanupRealtimeEvents(db);
     } catch (error) {
-        console.error("Failed to poll realtime events:", error);
+        logError("realtime.poll_failed", "轮询实时事件失败", error, {
+            instance_id: REALTIME_INSTANCE_ID
+        });
     } finally {
         isPolling = false;
     }
@@ -184,7 +187,9 @@ async function startRealtimeEventPolling() {
     lastEventId = await fetchLatestRealtimeEventId(db);
     pollerTimer = setInterval(() => {
         pollRealtimeEvents().catch((error) => {
-            console.error("Realtime poller tick failed:", error);
+            logError("realtime.poll_tick_failed", "实时事件轮询周期执行失败", error, {
+                instance_id: REALTIME_INSTANCE_ID
+            });
         });
     }, Math.max(250, REALTIME_EVENT_POLL_INTERVAL_MS));
     if (typeof pollerTimer.unref === "function") {
@@ -348,7 +353,9 @@ function setupSocketLifecycle(user, socket) {
 
 function attachRealtimeServer(server) {
     startRealtimeEventPolling().catch((error) => {
-        console.error("Failed to start realtime event polling:", error);
+        logError("realtime.start_failed", "实时事件轮询启动失败", error, {
+            instance_id: REALTIME_INSTANCE_ID
+        });
     });
 
     server.on("upgrade", (req, socket) => {

@@ -4,6 +4,7 @@ const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
+const { logError } = require("../utils/logger");
 const {
     ensureOptionalText,
     ensurePagination,
@@ -223,7 +224,10 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     try {
         await deleteManagedUploadsIfOrphan(db, normalizeImageList(post.images_json || "[]"));
     } catch (error) {
-        console.error("Failed to cleanup deleted post images:", error);
+        logError("post.cleanup_failed", "删除帖子后清理图片失败", error, {
+            post_id: postId,
+            user_id: req.user.id
+        });
     }
     res.json({ code: 200, message: "帖子已删除" });
 });

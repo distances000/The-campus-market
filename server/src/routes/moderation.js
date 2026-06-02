@@ -7,6 +7,7 @@ const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const { createAppError, getUserFacingMessage } = require("../utils/error");
 const { ensureOptionalEnum, ensurePagination, ensurePositiveInt } = require("../utils/validate");
+const { buildRequestMeta, logError, logInfo, logWarn } = require("../utils/logger");
 
 const router = express.Router();
 
@@ -68,7 +69,10 @@ async function applyModerationAction(db, report, actionType) {
         try {
             await deleteManagedUploadsIfOrphan(db, normalizeImageList(post.images_json || "[]"));
         } catch (error) {
-            console.error("Failed to cleanup moderated post images:", error);
+            logError("moderation.cleanup_failed", "删除违规帖子后清理图片失败", error, {
+                target_type: report.target_type,
+                target_id: report.target_id
+            });
         }
     }
 }
@@ -215,6 +219,10 @@ router.patch("/reports/:id", async (req, res) => {
             `).run(normalizedStatus, normalizedAction, resolutionNote, req.user.id, report.id);
         });
     } catch (error) {
+        logWarn("moderation.report_update_failed", "举报处理失败", buildRequestMeta(req, {
+            report_id: reportId,
+            reason: getUserFacingMessage(error, "举报处理失败，请稍后再试")
+        }));
         return res.json({ code: 400, message: getUserFacingMessage(error, "举报处理失败，请稍后再试") });
     }
 
@@ -239,6 +247,14 @@ router.patch("/reports/:id", async (req, res) => {
             handler.nickname AS handled_by_name
         ${getReportBaseSql("WHERE r.id=?")}
     `).get(report.id);
+
+    logInfo("moderation.report_updated", "举报处理结果已更新", buildRequestMeta(req, {
+        report_id: report.id,
+        target_type: report.target_type,
+        target_id: report.target_id,
+        status: normalizedStatus,
+        action: normalizedAction
+    }));
 
     return res.json({
         code: 200,
@@ -391,6 +407,10 @@ router.patch("/password-resets/:id", async (req, res) => {
             );
         });
     } catch (error) {
+        logWarn("moderation.password_reset_failed", "密码重置工单处理失败", buildRequestMeta(req, {
+            reset_request_id: requestId,
+            reason: getUserFacingMessage(error, "密码重置处理失败，请稍后再试")
+        }));
         return res.json({ code: 400, message: getUserFacingMessage(error, "密码重置处理失败，请稍后再试") });
     }
 
@@ -417,6 +437,12 @@ router.patch("/password-resets/:id", async (req, res) => {
             handler.nickname AS handled_by_name
         ${getPasswordResetBaseSql("WHERE pr.id=?")}
     `).get(requestInfo.id);
+
+    logInfo("moderation.password_reset_updated", "密码重置工单已处理", buildRequestMeta(req, {
+        reset_request_id: requestInfo.id,
+        status: normalizedStatus,
+        target_user_id: requestInfo.user_id
+    }));
 
     return res.json({
         code: 200,
