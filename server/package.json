@@ -10,6 +10,7 @@
     "doctor-db": "node scripts/db-doctor.js",
     "doctor-env": "node scripts/doctor-env.js",
     "cleanup-uploads": "node scripts/cleanup-uploads.js",
+    "smoke-core-flow": "node scripts/smoke-core-flow.js",
     "smoke-page-access": "node scripts/smoke-page-access.js"
   },
   "dependencies": {

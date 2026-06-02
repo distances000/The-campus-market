@@ -1,6 +1,5 @@
 const http = require("http");
 const mysql = require("mysql2/promise");
-const bcrypt = require("bcryptjs");
 
 const BASE_URL = {
     hostname: "127.0.0.1",
@@ -149,31 +148,32 @@ function buildUsers() {
 }
 
 async function createUser(user) {
-    const db = await mysql.createConnection(DATABASE_URL);
-    try {
-        const passwordHash = bcrypt.hashSync(user.password, 10);
-        const [result] = await db.query(`
-            INSERT INTO users (username, password_hash, nickname, phone, email)
-            VALUES (?, ?, ?, ?, ?)
-        `, [user.username, passwordHash, user.nickname, user.phone, user.email]);
-        return {
-            user: {
-                id: result.insertId,
-                username: user.username,
-                nickname: user.nickname,
-                phone: user.phone,
-                email: user.email
-            }
-        };
-    } finally {
-        await db.end();
-    }
+    const result = await buildJsonRequest("POST", "/api/auth/register", {
+        username: user.username,
+        password: user.password,
+        nickname: user.nickname,
+        email: user.email
+    });
+    expectCode(result, 200, `register ${user.username}`);
+    return result.data.data;
 }
 
 async function loginUser(username, password) {
     const result = await buildJsonRequest("POST", "/api/auth/login", { username, password });
     expectCode(result, 200, `login ${username}`);
     return result.data.data;
+}
+
+async function expectBusinessCode(method, path, body, token, expectedCode, step) {
+    const result = await buildJsonRequest(method, path, body, token);
+    assert(result && result.data && result.data.code === expectedCode, `${step} failed: ${JSON.stringify(result && result.data)}`);
+    return result;
+}
+
+async function expectHttpStatus(method, path, body, token, expectedStatus, step) {
+    const result = await buildJsonRequest(method, path, body, token);
+    assert(result && result.status === expectedStatus, `${step} failed: expected status ${expectedStatus}, got ${result && result.status}, body=${JSON.stringify(result && result.data)}`);
+    return result;
 }
 
 async function getNotificationEvents(token, kind) {
@@ -190,18 +190,33 @@ async function getNotificationEvents(token, kind) {
         logStep("setup", "cleaning stale smoke data");
         await cleanupTestData(usernames);
 
-        logStep("auth", "creating seller, buyer and admin candidate");
+        logStep("auth", "registering seller, buyer and admin candidate");
         await createUser(users.seller);
         await createUser(users.buyer);
-        const adminCandidate = await createUser(users.admin);
+        await createUser(users.admin);
 
         const sellerAuth = await loginUser(users.seller.username, users.seller.password);
         const buyerAuth = await loginUser(users.buyer.username, users.buyer.password);
         await promoteUserAsAdmin(users.admin.username);
         const adminToken = (await loginUser(users.admin.username, users.admin.password)).token;
+        const failedLogin = await buildJsonRequest("POST", "/api/auth/login", {
+            username: users.seller.username,
+            password: "wrong-password"
+        });
+        assert(failedLogin.data.code === 400, "login failure path should reject wrong password");
         logStep("auth", "admin ready");
 
         logStep("product", "testing publish/edit/down/up/delete");
+        let result = await expectHttpStatus("POST", "/api/products", {
+            title: "未登录商品",
+            description: "应被权限拦截",
+            price: 10,
+            category: "other",
+            condition: "used",
+            campus: "main",
+            images_json: "[]"
+        }, undefined, 401, "guest publish product");
+
         const productCrud = await buildJsonRequest("POST", "/api/products", {
             title: "冒烟商品-基础流",
             description: "用于验证商品编辑、下架、上架和删除",
@@ -215,7 +230,12 @@ async function getNotificationEvents(token, kind) {
         expectCode(productCrud, 200, "create product crud");
         const productCrudId = productCrud.data.data.id;
 
-        let result = await buildJsonRequest("PUT", `/api/products/${productCrudId}`, {
+        result = await expectBusinessCode("PUT", `/api/products/${productCrudId}`, {
+            title: "越权修改"
+        }, buyerAuth.token, 403, "buyer cannot edit seller product");
+        result = await expectBusinessCode("DELETE", `/api/products/${productCrudId}`, undefined, buyerAuth.token, 403, "buyer cannot delete seller product");
+
+        result = await buildJsonRequest("PUT", `/api/products/${productCrudId}`, {
             title: "冒烟商品-已编辑",
             price: 66,
             description: "已完成编辑"
@@ -277,6 +297,7 @@ async function getNotificationEvents(token, kind) {
         expectCode(completeOrder, 200, "create complete order");
         const completeOrderId = completeOrder.data.data.id;
 
+        result = await expectBusinessCode("POST", `/api/orders/${completeOrderId}/complete`, undefined, sellerAuth.token, 403, "seller cannot complete buyer order");
         result = await buildJsonRequest("POST", `/api/orders/${completeOrderId}/complete`, undefined, buyerAuth.token);
         expectCode(result, 200, "complete order");
 
@@ -305,6 +326,7 @@ async function getNotificationEvents(token, kind) {
         expectCode(postCrud, 200, "create post crud");
         const postCrudId = postCrud.data.data.id;
 
+        result = await expectBusinessCode("DELETE", `/api/posts/${postCrudId}`, undefined, buyerAuth.token, 403, "buyer cannot delete seller post");
         result = await buildJsonRequest("POST", `/api/posts/${postCrudId}/like`, undefined, buyerAuth.token);
         expectCode(result, 200, "like post");
         result = await buildJsonRequest("POST", `/api/posts/${postCrudId}/comment`, { content: "买家评论帖子" }, buyerAuth.token);
@@ -380,6 +402,12 @@ async function getNotificationEvents(token, kind) {
         }, buyerAuth.token);
         expectCode(createdReportPost, 200, "report post");
 
+        result = await expectHttpStatus("PATCH", `/api/moderation/reports/${createdReportProduct.data.data.id}`, {
+            status: "resolved",
+            handled_action: "hide_product",
+            resolution_note: "普通用户不应有此权限"
+        }, buyerAuth.token, 403, "buyer cannot moderate reports");
+
         result = await buildJsonRequest("PATCH", `/api/moderation/reports/${createdReportProduct.data.data.id}`, {
             status: "resolved",
             handled_action: "hide_product",
@@ -426,6 +454,7 @@ async function getNotificationEvents(token, kind) {
             ok: true,
             users: usernames,
             checked: [
+                "注册/登录",
                 "商品发布/编辑/下架/删除",
                 "帖子发布/评论/点赞/删除",
                 "下单/完成/取消/评价",
@@ -433,7 +462,8 @@ async function getNotificationEvents(token, kind) {
                 "私信",
                 "好友",
                 "举报",
-                "通知"
+                "通知",
+                "权限拦截"
             ]
         }, null, 2));
     } finally {
