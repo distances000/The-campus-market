@@ -37,6 +37,10 @@ cert_files_exist() {
         && [ -f "/etc/letsencrypt/live/${PRIMARY_DOMAIN}/privkey.pem" ]
 }
 
+test_config() {
+    nginx -t
+}
+
 render_config() {
     if [ "${ENABLE_HTTPS:-false}" = "true" ] && cert_files_exist; then
         CURRENT_MODE="https"
@@ -74,6 +78,7 @@ watch_certificates() {
 
         if [ "${NEXT_MODE}" != "${CURRENT_MODE}" ] || [ "${NEXT_SIGNATURE}" != "${PREVIOUS_SIGNATURE}" ]; then
             render_config
+            test_config
             nginx -s reload
             PREVIOUS_SIGNATURE="${NEXT_SIGNATURE}"
         fi
@@ -85,6 +90,7 @@ PRIMARY_DOMAIN="$(primary_domain)"
 CURRENT_MODE="http"
 
 render_config
+test_config
 
 if [ "${ENABLE_HTTPS:-false}" = "true" ]; then
     watch_certificates &
