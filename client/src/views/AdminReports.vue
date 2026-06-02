@@ -68,12 +68,44 @@
                             </el-tag>
                         </template>
                     </el-table-column>
+                    <el-table-column label="处理说明" min-width="200">
+                        <template #default="{ row }">
+                            <div class="table-subtitle">
+                                {{ row.resolution_note || "暂未填写处理说明" }}
+                            </div>
+                        </template>
+                    </el-table-column>
                     <el-table-column label="时间" width="170">
                         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
                     </el-table-column>
-                    <el-table-column label="操作" width="110" fixed="right">
+                    <el-table-column label="操作" width="240" fixed="right">
                         <template #default="{ row }">
-                            <el-button text type="primary" @click.stop="openDetail(row)">处理</el-button>
+                            <div class="table-actions">
+                                <el-button text type="primary" @click.stop="openDetail(row)">详情</el-button>
+                                <el-button
+                                    v-if="canQuickResolve(row, 'hide_product')"
+                                    text
+                                    type="warning"
+                                    @click.stop="handleQuickResolve(row, 'hide_product')"
+                                >
+                                    下架商品
+                                </el-button>
+                                <el-button
+                                    v-if="canQuickResolve(row, 'delete_post')"
+                                    text
+                                    type="danger"
+                                    @click.stop="handleQuickResolve(row, 'delete_post')"
+                                >
+                                    删除帖子
+                                </el-button>
+                                <el-button
+                                    v-if="canQuickReject(row)"
+                                    text
+                                    @click.stop="handleQuickReject(row)"
+                                >
+                                    驳回
+                                </el-button>
+                            </div>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -119,7 +151,7 @@
                 <section class="drawer-block">
                     <h4>处理信息</h4>
                     <div class="drawer-meta">
-                        <span>当前动作：{{ actionLabel(detailReport.handled_action) }}</span>
+                        <span>当前动作：{{ actionLabel(detailReport.handled_action || 'none') }}</span>
                         <span>处理人：{{ detailReport.handled_by_name || "未处理" }}</span>
                         <span>处理时间：{{ detailReport.handled_at ? formatTime(detailReport.handled_at) : "未处理" }}</span>
                     </div>
@@ -162,11 +194,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "../utils/message";
 import { getModerationReport, getModerationReports, updateModerationReport } from "../api/moderation";
 import { REPORT_REASON_MAP } from "../utils/report";
 
+const route = useRoute();
 const router = useRouter();
 
 const reports = ref([]);
@@ -268,6 +301,23 @@ function syncProcessForm(report) {
     }
 }
 
+function canQuickResolve(report, action) {
+    if (!report || report.status === "resolved" || report.status === "rejected") {
+        return false;
+    }
+    if (action === "hide_product") {
+        return report.target_type === "product";
+    }
+    if (action === "delete_post") {
+        return report.target_type === "post";
+    }
+    return false;
+}
+
+function canQuickReject(report) {
+    return !!report && report.status !== "resolved" && report.status !== "rejected";
+}
+
 async function fetchReports() {
     loading.value = true;
     try {
@@ -313,8 +363,27 @@ async function openDetail(report) {
         detailReport.value = response.data;
         syncProcessForm(response.data);
         drawerVisible.value = true;
+        syncRouteReportId(response.data.id);
     } catch {
         ElMessage.error("加载举报详情失败");
+    }
+}
+
+async function submitReportUpdate(payload, successMessage) {
+    if (!detailReport.value) {
+        return;
+    }
+
+    saving.value = true;
+    try {
+        const response = await updateModerationReport(detailReport.value.id, payload);
+        detailReport.value = response.data;
+        syncProcessForm(response.data);
+        reports.value = reports.value.map((item) => (item.id === response.data.id ? response.data : item));
+        ElMessage.success(successMessage);
+        await fetchReports();
+    } finally {
+        saving.value = false;
     }
 }
 
@@ -327,25 +396,76 @@ async function submitReport() {
         return;
     }
 
-    saving.value = true;
-    try {
-        const response = await updateModerationReport(detailReport.value.id, {
-            status: processForm.status,
-            handled_action: processForm.status === "resolved" ? processForm.handled_action : "none",
-            resolution_note: processForm.resolution_note
-        });
-        detailReport.value = response.data;
-        syncProcessForm(response.data);
-        reports.value = reports.value.map((item) => (item.id === response.data.id ? response.data : item));
-        ElMessage.success("举报处理结果已更新");
-        await fetchReports();
-    } finally {
-        saving.value = false;
-    }
+    await submitReportUpdate({
+        status: processForm.status,
+        handled_action: processForm.status === "resolved" ? processForm.handled_action : "none",
+        resolution_note: processForm.resolution_note
+    }, "举报处理结果已更新");
+}
+
+async function handleQuickResolve(report, action) {
+    await openDetail(report);
+    await submitReportUpdate({
+        status: "resolved",
+        handled_action: action,
+        resolution_note: `已核实举报内容，已执行${actionLabel(action)}。`
+    }, `${actionLabel(action)}已执行`);
+}
+
+async function handleQuickReject(report) {
+    await openDetail(report);
+    await submitReportUpdate({
+        status: "rejected",
+        handled_action: "none",
+        resolution_note: "经核查，当前举报不成立，已驳回。"
+    }, "举报已驳回");
 }
 
 function goPasswordResets() {
     router.push("/moderation/password-resets");
+}
+
+function syncRouteReportId(reportId) {
+    const nextId = reportId ? String(reportId) : undefined;
+    const currentId = route.query.id ? String(route.query.id) : undefined;
+    if (currentId === nextId) {
+        return;
+    }
+
+    const nextQuery = { ...route.query };
+    if (nextId) {
+        nextQuery.id = nextId;
+    } else {
+        delete nextQuery.id;
+    }
+
+    router.replace({
+        path: route.path,
+        query: nextQuery
+    });
+}
+
+async function tryOpenReportFromQuery() {
+    const reportId = String(route.query.id || "").trim();
+    if (!reportId || drawerVisible.value || saving.value) {
+        return;
+    }
+
+    const existing = reports.value.find((item) => String(item.id) === reportId);
+    if (existing) {
+        await openDetail(existing);
+        return;
+    }
+
+    try {
+        const response = await getModerationReport(reportId);
+        detailReport.value = response.data;
+        syncProcessForm(response.data);
+        drawerVisible.value = true;
+    } catch {
+        ElMessage.warning("指定的举报记录不存在或已被删除");
+        syncRouteReportId("");
+    }
 }
 
 watch(page, () => {
@@ -358,7 +478,22 @@ watch(() => processForm.status, (status) => {
     }
 });
 
-onMounted(fetchReports);
+watch(() => route.query.id, () => {
+    if (route.query.id) {
+        tryOpenReportFromQuery();
+    }
+});
+
+watch(drawerVisible, (visible) => {
+    if (!visible) {
+        syncRouteReportId("");
+    }
+});
+
+onMounted(async () => {
+    await fetchReports();
+    await tryOpenReportFromQuery();
+});
 </script>
 
 <style scoped>
@@ -479,6 +614,13 @@ onMounted(fetchReports);
     font-size: 12px;
     color: var(--text-tertiary);
     line-height: 1.5;
+}
+
+.table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    align-items: center;
 }
 
 .pager {

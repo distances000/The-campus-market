@@ -1,5 +1,6 @@
-﻿const http = require("http");
+const http = require("http");
 const mysql = require("mysql2/promise");
+const bcrypt = require("bcryptjs");
 
 const BASE_URL = {
     hostname: "127.0.0.1",
@@ -127,27 +128,46 @@ function buildUsers() {
             username: `smoke_seller_${suffix}`,
             nickname: `卖家${suffix}`,
             phone: (`138${suffix.padStart(8, "0")}`).slice(0, 11),
+            email: `smoke_seller_${suffix}@example.com`,
             password: "Seller1234!"
         },
         buyer: {
             username: `smoke_buyer_${suffix}`,
             nickname: `买家${suffix}`,
             phone: (`139${suffix.padStart(8, "0")}`).slice(0, 11),
+            email: `smoke_buyer_${suffix}@example.com`,
             password: "Buyer1234!"
         },
         admin: {
             username: `smoke_admin_${suffix}`,
             nickname: `管理员${suffix}`,
             phone: (`137${suffix.padStart(8, "0")}`).slice(0, 11),
+            email: `smoke_admin_${suffix}@example.com`,
             password: "Admin1234!"
         }
     };
 }
 
-async function registerUser(user) {
-    const result = await buildJsonRequest("POST", "/api/auth/register", user);
-    expectCode(result, 200, `register ${user.username}`);
-    return result.data.data;
+async function createUser(user) {
+    const db = await mysql.createConnection(DATABASE_URL);
+    try {
+        const passwordHash = bcrypt.hashSync(user.password, 10);
+        const [result] = await db.query(`
+            INSERT INTO users (username, password_hash, nickname, phone, email)
+            VALUES (?, ?, ?, ?, ?)
+        `, [user.username, passwordHash, user.nickname, user.phone, user.email]);
+        return {
+            user: {
+                id: result.insertId,
+                username: user.username,
+                nickname: user.nickname,
+                phone: user.phone,
+                email: user.email
+            }
+        };
+    } finally {
+        await db.end();
+    }
 }
 
 async function loginUser(username, password) {
@@ -170,11 +190,13 @@ async function getNotificationEvents(token, kind) {
         logStep("setup", "cleaning stale smoke data");
         await cleanupTestData(usernames);
 
-        logStep("auth", "registering seller, buyer and admin candidate");
-        const sellerAuth = await registerUser(users.seller);
-        const buyerAuth = await registerUser(users.buyer);
-        const adminCandidate = await registerUser(users.admin);
+        logStep("auth", "creating seller, buyer and admin candidate");
+        await createUser(users.seller);
+        await createUser(users.buyer);
+        const adminCandidate = await createUser(users.admin);
 
+        const sellerAuth = await loginUser(users.seller.username, users.seller.password);
+        const buyerAuth = await loginUser(users.buyer.username, users.buyer.password);
         await promoteUserAsAdmin(users.admin.username);
         const adminToken = (await loginUser(users.admin.username, users.admin.password)).token;
         logStep("auth", "admin ready");
@@ -422,3 +444,5 @@ async function getNotificationEvents(token, kind) {
     console.error(error && error.stack ? error.stack : error);
     process.exit(1);
 });
+
+
