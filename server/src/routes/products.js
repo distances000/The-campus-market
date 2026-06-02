@@ -3,7 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, getRemovedManagedUrls, deleteManagedUploadsIfOrphan } = require("../utils/upload");
-const { getUserFacingMessage } = require("../utils/error");
+const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const {
     ensureOptionalEnum,
     ensureOptionalText,
@@ -347,7 +347,14 @@ router.post("/:id/favorite", authMiddleware, async (req, res) => {
         await db.prepare("DELETE FROM favorites WHERE user_id=? AND product_id=?").run(req.user.id, productId);
         res.json({ code: 200, message: "已取消收藏", data: { favorited: false } });
     } else {
-        await db.prepare("INSERT INTO favorites (user_id,product_id) VALUES (?,?)").run(req.user.id, productId);
+        try {
+            await db.prepare("INSERT INTO favorites (user_id,product_id) VALUES (?,?)").run(req.user.id, productId);
+        } catch (error) {
+            if (isDuplicateEntryError(error)) {
+                return res.json({ code: 400, message: "请勿重复收藏" });
+            }
+            throw error;
+        }
         await createNotification(db, {
             userId: product.seller_id,
             actorId: req.user.id,

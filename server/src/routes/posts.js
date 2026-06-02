@@ -3,7 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
-const { getUserFacingMessage } = require("../utils/error");
+const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const {
     ensureOptionalText,
     ensurePagination,
@@ -120,7 +120,14 @@ router.post("/:id/like", authMiddleware, async (req, res) => {
         await db.prepare("UPDATE posts SET likes_count=likes_count-1 WHERE id=?").run(postId);
         res.json({ code: 200, message: "已取消点赞", data: { liked: false } });
     } else {
-        await db.prepare("INSERT INTO likes (user_id,post_id) VALUES (?,?)").run(req.user.id, postId);
+        try {
+            await db.prepare("INSERT INTO likes (user_id,post_id) VALUES (?,?)").run(req.user.id, postId);
+        } catch (error) {
+            if (isDuplicateEntryError(error)) {
+                return res.json({ code: 400, message: "请勿重复点赞" });
+            }
+            throw error;
+        }
         await db.prepare("UPDATE posts SET likes_count=likes_count+1 WHERE id=?").run(postId);
         await createNotification(db, {
             userId: post.author_id,

@@ -9,7 +9,7 @@ const {
     pushConversationRefresh,
     pushUnreadSummary
 } = require("../utils/realtime");
-const { getUserFacingMessage } = require("../utils/error");
+const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const {
     ensureOptionalEnum,
     ensureOptionalText,
@@ -398,10 +398,17 @@ router.post("/friends/:friendId", authMiddleware, async (req, res) => {
         return res.json({ code: 200, message: "已经是好友了" });
     }
 
-    await db.transaction(async (tx) => {
-        await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(req.user.id, friendId);
-        await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(friendId, req.user.id);
-    });
+    try {
+        await db.transaction(async (tx) => {
+            await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(req.user.id, friendId);
+            await tx.prepare("INSERT INTO friends (user_id, friend_id) VALUES (?, ?)").run(friendId, req.user.id);
+        });
+    } catch (error) {
+        if (isDuplicateEntryError(error)) {
+            return res.json({ code: 400, message: "请勿重复添加好友" });
+        }
+        throw error;
+    }
 
     await createNotification(db, {
         userId: friendId,

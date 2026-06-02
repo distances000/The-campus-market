@@ -2,7 +2,7 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
-const { getUserFacingMessage } = require("../utils/error");
+const { createAppError, getUserFacingMessage } = require("../utils/error");
 const {
     ensureOptionalEnum,
     ensureOptionalText,
@@ -44,21 +44,56 @@ router.post("/", authMiddleware, async (req, res) => {
     }
 
     const db = getDb();
-    const product = await db.prepare("SELECT * FROM products WHERE id=?").get(productId);
-    if (!product) return res.json({ code: 404, message: "商品不存在" });
-    if (product.seller_id === req.user.id) return res.json({ code: 400, message: "不能购买自己发布的商品" });
-    if (product.status !== "active") return res.json({ code: 400, message: "该商品当前不可下单" });
-    const activeOrder = await db.prepare("SELECT id FROM orders WHERE product_id=? AND status IN ('pending_completion','completed')").get(productId);
-    if (activeOrder) return res.json({ code: 400, message: "该商品已有订单" });
+    let orderId;
+    let product;
 
-    const orderId = await db.transaction(async (tx) => {
-        const orderResult = await tx.prepare(`
-            INSERT INTO orders (product_id,buyer_id,seller_id,price_snapshot,status)
-            VALUES (?,?,?,?,?)
-        `).run(product.id, req.user.id, product.seller_id, product.price, "pending_completion");
-        await tx.prepare("UPDATE products SET status='sold', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(product.id);
-        return orderResult.lastInsertRowid;
-    });
+    try {
+        orderId = await db.transaction(async (tx) => {
+            const lockedProduct = await tx.prepare("SELECT * FROM products WHERE id=? FOR UPDATE").get(productId);
+            if (!lockedProduct) {
+                throw createAppError("商品不存在", { status: 404, code: 404 });
+            }
+            if (lockedProduct.seller_id === req.user.id) {
+                throw createAppError("不能购买自己发布的商品");
+            }
+            if (lockedProduct.status !== "active") {
+                throw createAppError("该商品当前不可下单");
+            }
+
+            const activeOrder = await tx.prepare(`
+                SELECT id
+                FROM orders
+                WHERE product_id=? AND status IN ('pending_completion','completed')
+                LIMIT 1
+                FOR UPDATE
+            `).get(productId);
+            if (activeOrder) {
+                throw createAppError("该商品已有订单");
+            }
+
+            const updateResult = await tx.prepare(`
+                UPDATE products
+                SET status='sold', updated_at=CURRENT_TIMESTAMP
+                WHERE id=? AND status='active'
+            `).run(productId);
+            if (!updateResult.changes) {
+                throw createAppError("该商品当前不可下单");
+            }
+
+            const orderResult = await tx.prepare(`
+                INSERT INTO orders (product_id,buyer_id,seller_id,price_snapshot,status)
+                VALUES (?,?,?,?,?)
+            `).run(lockedProduct.id, req.user.id, lockedProduct.seller_id, lockedProduct.price, "pending_completion");
+            product = lockedProduct;
+            return orderResult.lastInsertRowid;
+        });
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            code: error.code || error.status || 400,
+            message: getUserFacingMessage(error, "下单失败，请稍后再试")
+        });
+    }
+
     const order = await db.prepare(`
         SELECT
             o.*,
@@ -163,12 +198,23 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
         return res.json({ code: 400, message: getUserFacingMessage(error, "订单ID不合法") });
     }
 
-    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
-    if (!order) return res.json({ code: 404, message: "订单不存在" });
-    if (order.buyer_id !== req.user.id) return res.json({ code: 403, message: "只有买家可以确认完成" });
-    if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可完成" });
+    let order;
 
-    await db.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+    try {
+        await db.transaction(async (tx) => {
+            order = await tx.prepare("SELECT * FROM orders WHERE id=? FOR UPDATE").get(orderId);
+            if (!order) throw createAppError("订单不存在", { status: 404, code: 404 });
+            if (order.buyer_id !== req.user.id) throw createAppError("只有买家可以确认完成", { status: 403, code: 403 });
+            if (order.status !== "pending_completion") throw createAppError("当前订单状态不可完成");
+
+            await tx.prepare("UPDATE orders SET status='completed', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+        });
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            code: error.code || error.status || 400,
+            message: getUserFacingMessage(error, "订单完成失败，请稍后再试")
+        });
+    }
 
     const product = await db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
     await createNotification(db, {
@@ -196,15 +242,28 @@ router.post("/:id/cancel", authMiddleware, async (req, res) => {
         return res.json({ code: 400, message: getUserFacingMessage(error, "订单ID不合法") });
     }
 
-    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
-    if (!order) return res.json({ code: 404, message: "订单不存在" });
-    if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权取消该订单" });
-    if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可取消" });
+    let order;
 
-    await db.transaction(async (tx) => {
-        await tx.prepare("UPDATE orders SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
-        await tx.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.product_id);
-    });
+    try {
+        await db.transaction(async (tx) => {
+            order = await tx.prepare("SELECT * FROM orders WHERE id=? FOR UPDATE").get(orderId);
+            if (!order) throw createAppError("订单不存在", { status: 404, code: 404 });
+            if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) {
+                throw createAppError("无权取消该订单", { status: 403, code: 403 });
+            }
+            if (order.status !== "pending_completion") {
+                throw createAppError("当前订单状态不可取消");
+            }
+
+            await tx.prepare("UPDATE orders SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(order.id);
+            await tx.prepare("UPDATE products SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sold'").run(order.product_id);
+        });
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            code: error.code || error.status || 400,
+            message: getUserFacingMessage(error, "订单取消失败，请稍后再试")
+        });
+    }
 
     const product = await db.prepare("SELECT title FROM products WHERE id=?").get(order.product_id);
     const targetUserId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;

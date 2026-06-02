@@ -42,11 +42,16 @@ function logServerError(error, context = "") {
     console.error(prefix, error);
 }
 
+function isDuplicateEntryError(error) {
+    return error?.code === "ER_DUP_ENTRY" || error?.errno === 1062;
+}
+
 module.exports = {
     AppError,
     createAppError,
     getUserFacingMessage,
     getStatusCode,
     getErrorCode,
-    logServerError
+    logServerError,
+    isDuplicateEntryError
 };
