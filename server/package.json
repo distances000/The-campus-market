@@ -9,7 +9,8 @@
     "init-db": "node src/models/init.js",
     "doctor-db": "node scripts/db-doctor.js",
     "doctor-env": "node scripts/doctor-env.js",
-    "cleanup-uploads": "node scripts/cleanup-uploads.js"
+    "cleanup-uploads": "node scripts/cleanup-uploads.js",
+    "smoke-page-access": "node scripts/smoke-page-access.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
