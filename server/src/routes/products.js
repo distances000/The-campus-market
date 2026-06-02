@@ -3,6 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, getRemovedManagedUrls, deleteManagedUploadsIfOrphan } = require("../utils/upload");
+const { getUserFacingMessage } = require("../utils/error");
 const router = express.Router();
 
 function normalizeStatus(status) {
@@ -37,7 +38,7 @@ router.post("/", authMiddleware, async (req, res) => {
     try {
         images = normalizeImageList(images_json || "[]");
     } catch (error) {
-        return res.json({ code: 400, message: error.message });
+        return res.json({ code: 400, message: getUserFacingMessage(error, "商品图片格式不正确") });
     }
     const db = getDb();
     const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
@@ -175,7 +176,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
         try {
             nextImages = normalizeImageList(images_json);
         } catch (error) {
-            return res.json({ code: 400, message: error.message });
+            return res.json({ code: 400, message: getUserFacingMessage(error, "商品图片格式不正确") });
         }
         fields.push("images_json=?");
         vals.push(JSON.stringify(nextImages));

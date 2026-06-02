@@ -5,6 +5,7 @@ const { authMiddleware } = require("../middleware/auth");
 const { moderationMiddleware } = require("../middleware/moderation");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
+const { createAppError, getUserFacingMessage } = require("../utils/error");
 
 const router = express.Router();
 
@@ -52,11 +53,11 @@ async function applyModerationAction(db, report, actionType) {
 
     if (actionType === "hide_product") {
         if (report.target_type !== "product") {
-            throw new Error("只有商品举报才能执行下架操作");
+            throw createAppError("只有商品举报才能执行下架操作");
         }
         const product = await db.prepare("SELECT id FROM products WHERE id=?").get(report.target_id);
         if (!product) {
-            throw new Error("该商品已不存在，无法重复下架");
+            throw createAppError("该商品已不存在，无法重复下架");
         }
         await db.prepare("UPDATE products SET status='inactive', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(report.target_id);
         return;
@@ -64,11 +65,11 @@ async function applyModerationAction(db, report, actionType) {
 
     if (actionType === "delete_post") {
         if (report.target_type !== "post") {
-            throw new Error("只有帖子举报才能执行删除操作");
+            throw createAppError("只有帖子举报才能执行删除操作");
         }
         const post = await db.prepare("SELECT id, images_json FROM posts WHERE id=?").get(report.target_id);
         if (!post) {
-            throw new Error("该帖子已不存在，无法重复删除");
+            throw createAppError("该帖子已不存在，无法重复删除");
         }
         await db.prepare("DELETE FROM likes WHERE post_id=?").run(report.target_id);
         await db.prepare("DELETE FROM comments WHERE post_id=?").run(report.target_id);
@@ -198,7 +199,7 @@ router.patch("/reports/:id", async (req, res) => {
             `).run(normalizedStatus, normalizedAction, resolutionNote, req.user.id, report.id);
         });
     } catch (error) {
-        return res.json({ code: 400, message: error.message || "举报处理失败" });
+        return res.json({ code: 400, message: getUserFacingMessage(error, "举报处理失败，请稍后再试") });
     }
 
     if (normalizedStatus === "resolved" || normalizedStatus === "rejected") {
@@ -349,7 +350,7 @@ router.patch("/password-resets/:id", async (req, res) => {
             );
         });
     } catch (error) {
-        return res.json({ code: 400, message: error.message || "密码重置处理失败" });
+        return res.json({ code: 400, message: getUserFacingMessage(error, "密码重置处理失败，请稍后再试") });
     }
 
     if (normalizedStatus === "resolved" || normalizedStatus === "rejected") {

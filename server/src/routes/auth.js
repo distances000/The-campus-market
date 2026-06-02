@@ -7,6 +7,7 @@ const {
     getVerificationCodeHash,
     sendVerificationEmail
 } = require("../services/email");
+const { getUserFacingMessage, logServerError } = require("../utils/error");
 
 const router = express.Router();
 
@@ -140,9 +141,10 @@ router.post("/register/send-email-code", async (req, res) => {
         });
     } catch (error) {
         await db.prepare("DELETE FROM verification_codes WHERE id=?").run(result.lastInsertRowid);
+        logServerError(error, "send register email code");
         return res.status(500).json({
             code: 500,
-            message: error.message || "验证码邮件发送失败"
+            message: getUserFacingMessage(error, "验证码发送失败，请稍后再试")
         });
     }
 
@@ -159,21 +161,21 @@ router.post("/register", async (req, res) => {
     const email = normalizeEmail(req.body.email);
 
     if (!username || !password) {
-        return res.json({ code: 400, message: "?????????" });
+        return res.json({ code: 400, message: "请填写用户名和密码" });
     }
     if (email && !isValidEmail(email)) {
-        return res.json({ code: 400, message: "??????????" });
+        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
     }
     if (password.length < 6) {
-        return res.json({ code: 400, message: "?????? 6 ?" });
+        return res.json({ code: 400, message: "密码至少需要 6 位" });
     }
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
-        return res.json({ code: 400, message: "??????" });
+        return res.json({ code: 400, message: "用户名已存在" });
     }
     if (email && await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
-        return res.json({ code: 400, message: "??????" });
+        return res.json({ code: 400, message: "邮箱已被注册" });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
@@ -185,7 +187,7 @@ router.post("/register", async (req, res) => {
     const user = await getPublicUserById(db, result.lastInsertRowid);
     return res.json({
         code: 200,
-        message: "????",
+        message: "注册成功",
         data: {
             user,
             token: generateToken(user)

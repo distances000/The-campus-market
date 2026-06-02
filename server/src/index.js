@@ -7,6 +7,7 @@ const { initDatabase } = require("./models/init");
 const { attachRealtimeServer } = require("./utils/realtime");
 const { getRuntimeConfig, validateRuntimeConfig, formatRuntimeSummary } = require("./config/runtime");
 const { UPLOAD_DIR, UPLOAD_PUBLIC_PREFIX } = require("./utils/upload");
+const { getErrorCode, getStatusCode, getUserFacingMessage, logServerError } = require("./utils/error");
 const app = express();
 
 loadAppEnv();
@@ -40,8 +41,11 @@ app.use("/api/upload", require("./routes/upload"));
 
 app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));
 app.use((err, req, res, next) => {
-    console.error(err);
-    res.status(500).json({ code: 500, message: "服务器内部错误" });
+    logServerError(err, `${req.method} ${req.originalUrl}`);
+    const status = getStatusCode(err, 500);
+    const code = getErrorCode(err, status);
+    const message = getUserFacingMessage(err, "服务暂时不可用，请稍后再试");
+    res.status(status).json({ code, message });
 });
 
 async function bootstrap() {
