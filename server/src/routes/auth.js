@@ -69,7 +69,16 @@ async function getPublicUserById(db, userId) {
 
 async function getLatestVerificationRecord(db, contact, purpose) {
     return db.prepare(`
-        SELECT id, contact, purpose, code_hash, verify_attempts, expires_at, consumed_at, last_sent_at
+        SELECT
+            id,
+            contact,
+            purpose,
+            code_hash,
+            verify_attempts,
+            expires_at,
+            consumed_at,
+            last_sent_at,
+            TIMESTAMPDIFF(SECOND, last_sent_at, CURRENT_TIMESTAMP) AS seconds_since_last_sent
         FROM verification_codes
         WHERE contact=? AND purpose=?
         ORDER BY id DESC
@@ -96,9 +105,9 @@ router.post("/register/send-email-code", async (req, res) => {
     const latest = await getLatestVerificationRecord(db, email, purpose);
     const cooldownSeconds = Number.parseInt(process.env.EMAIL_CODE_COOLDOWN_SECONDS || "60", 10);
     if (latest && latest.last_sent_at && !latest.consumed_at) {
-        const lastSentAt = new Date(latest.last_sent_at).getTime();
-        if (!Number.isNaN(lastSentAt) && Date.now() - lastSentAt < cooldownSeconds * 1000) {
-            const remainingSeconds = Math.max(1, cooldownSeconds - Math.floor((Date.now() - lastSentAt) / 1000));
+        const secondsSinceLastSent = Number.parseInt(latest.seconds_since_last_sent, 10);
+        if (Number.isFinite(secondsSinceLastSent) && secondsSinceLastSent < cooldownSeconds) {
+            const remainingSeconds = Math.max(1, cooldownSeconds - Math.max(0, secondsSinceLastSent));
             return res.status(429).json({
                 code: 429,
                 message: `验证码发送过于频繁，请 ${remainingSeconds} 秒后再试`
@@ -148,78 +157,35 @@ router.post("/register", async (req, res) => {
     const password = String(req.body.password || "");
     const nickname = normalizeText(req.body.nickname) || username;
     const email = normalizeEmail(req.body.email);
-    const emailCode = normalizeText(req.body.email_code || req.body.emailCode);
 
     if (!username || !password) {
-        return res.json({ code: 400, message: "请填写用户名和密码" });
+        return res.json({ code: 400, message: "?????????" });
     }
-    if (!email) {
-        return res.json({ code: 400, message: "请填写邮箱地址" });
-    }
-    if (!isValidEmail(email)) {
-        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
-    }
-    if (!emailCode) {
-        return res.json({ code: 400, message: "请填写邮箱验证码" });
-    }
-    if (!isValidVerificationCode(emailCode)) {
-        return res.json({ code: 400, message: "请输入 6 位邮箱验证码" });
+    if (email && !isValidEmail(email)) {
+        return res.json({ code: 400, message: "??????????" });
     }
     if (password.length < 6) {
-        return res.json({ code: 400, message: "密码至少需要 6 位" });
+        return res.json({ code: 400, message: "?????? 6 ?" });
     }
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
-        return res.json({ code: 400, message: "用户名已存在" });
+        return res.json({ code: 400, message: "??????" });
     }
-    if (await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
-        return res.json({ code: 400, message: "邮箱已被注册" });
-    }
-
-    const verification = await getLatestVerificationRecord(db, email, "register");
-    if (!verification) {
-        return res.json({ code: 400, message: "请先获取邮箱验证码" });
-    }
-    if (verification.consumed_at) {
-        return res.json({ code: 400, message: "邮箱验证码已使用，请重新获取" });
-    }
-    if (verification.expires_at && new Date(verification.expires_at).getTime() < Date.now()) {
-        return res.json({ code: 400, message: "邮箱验证码已过期，请重新获取" });
-    }
-    if (verification.code_hash !== getVerificationCodeHash(email, "register", emailCode)) {
-        const nextAttempts = Number(verification.verify_attempts || 0) + 1;
-        await db.prepare(`
-            UPDATE verification_codes
-            SET verify_attempts=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id=?
-        `).run(nextAttempts, verification.id);
-        if (nextAttempts >= 5) {
-            await db.prepare(`
-                UPDATE verification_codes
-                SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-                WHERE id=?
-            `).run(verification.id);
-        }
-        return res.json({ code: 400, message: "邮箱验证码不正确" });
+    if (email && await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+        return res.json({ code: 400, message: "??????" });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await db.prepare(`
         INSERT INTO users (username, password_hash, nickname, email)
         VALUES (?, ?, ?, ?)
-    `).run(username, passwordHash, nickname, email);
-
-    await db.prepare(`
-        UPDATE verification_codes
-        SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-        WHERE id=?
-    `).run(verification.id);
+    `).run(username, passwordHash, nickname, email || null);
 
     const user = await getPublicUserById(db, result.lastInsertRowid);
     return res.json({
         code: 200,
-        message: "注册成功",
+        message: "????",
         data: {
             user,
             token: generateToken(user)

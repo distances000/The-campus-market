@@ -1,13 +1,12 @@
-﻿import api from "./index";
+import api from "./index";
 
 export const login = (username, password) => api.post("/auth/login", { username, password });
 export const sendRegisterEmailCode = (email) => api.post("/auth/register/send-email-code", { email });
-export const register = (username, password, nickname, email, emailCode) => api.post("/auth/register", {
+export const register = (username, password, nickname, email) => api.post("/auth/register", {
     username,
     password,
     nickname,
-    email,
-    email_code: emailCode
+    email
 });
 export const getMe = () => api.get("/auth/me");
 export const updateMe = (payload) => api.put("/auth/me", payload);
