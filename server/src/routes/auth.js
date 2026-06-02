@@ -2,7 +2,11 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { getDb } = require("../config/db");
 const { generateToken, authMiddleware } = require("../middleware/auth");
-const { generateSmsCode, getSmsCodeHash, sendSmsCode } = require("../services/sms");
+const {
+    generateVerificationCode,
+    getVerificationCodeHash,
+    sendVerificationEmail
+} = require("../services/email");
 
 const router = express.Router();
 
@@ -14,8 +18,20 @@ function normalizePhone(value) {
     return normalizeText(value).replace(/\s+/g, "");
 }
 
+function normalizeEmail(value) {
+    return normalizeText(value).replace(/\s+/g, "").toLowerCase();
+}
+
 function isValidPhone(phone) {
     return /^1\d{10}$/.test(phone);
+}
+
+function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidVerificationCode(code) {
+    return /^\d{6}$/.test(normalizeText(code));
 }
 
 async function withCredit(db, user) {
@@ -40,7 +56,7 @@ async function withCredit(db, user) {
 }
 
 function getPublicUserFields() {
-    return "id, username, nickname, avatar_url, campus, bio, phone, is_admin, can_moderate, must_change_password, created_at";
+    return "id, username, email, nickname, avatar_url, campus, bio, phone, is_admin, can_moderate, must_change_password, created_at";
 }
 
 async function getPublicUserById(db, userId) {
@@ -51,38 +67,34 @@ async function getPublicUserById(db, userId) {
     return withCredit(db, user);
 }
 
-function isValidSmsCode(code) {
-    return /^\d{6}$/.test(normalizeText(code));
-}
-
-async function getLatestPhoneVerification(db, phone, purpose) {
+async function getLatestVerificationRecord(db, contact, purpose) {
     return db.prepare(`
-        SELECT id, code_hash, verify_attempts, expires_at, consumed_at, last_sent_at
-        FROM phone_verification_codes
-        WHERE phone=? AND purpose=?
+        SELECT id, contact, purpose, code_hash, verify_attempts, expires_at, consumed_at, last_sent_at
+        FROM verification_codes
+        WHERE contact=? AND purpose=?
         ORDER BY id DESC
         LIMIT 1
-    `).get(phone, purpose);
+    `).get(contact, purpose);
 }
 
-router.post("/register/send-code", async (req, res) => {
-    const phone = normalizePhone(req.body.phone);
+router.post("/register/send-email-code", async (req, res) => {
+    const email = normalizeEmail(req.body.email);
     const purpose = "register";
 
-    if (!phone) {
-        return res.json({ code: 400, message: "请填写手机号" });
+    if (!email) {
+        return res.json({ code: 400, message: "请填写邮箱地址" });
     }
-    if (!isValidPhone(phone)) {
-        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+    if (!isValidEmail(email)) {
+        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
     }
 
     const db = getDb();
-    if (await db.prepare("SELECT id FROM users WHERE phone=?").get(phone)) {
-        return res.json({ code: 400, message: "手机号已被注册" });
+    if (await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+        return res.json({ code: 400, message: "邮箱已被注册" });
     }
 
-    const latest = await getLatestPhoneVerification(db, phone, purpose);
-    const cooldownSeconds = Number.parseInt(process.env.SMS_CODE_COOLDOWN_SECONDS || "60", 10);
+    const latest = await getLatestVerificationRecord(db, email, purpose);
+    const cooldownSeconds = Number.parseInt(process.env.EMAIL_CODE_COOLDOWN_SECONDS || "60", 10);
     if (latest && latest.last_sent_at && !latest.consumed_at) {
         const lastSentAt = new Date(latest.last_sent_at).getTime();
         if (!Number.isNaN(lastSentAt) && Date.now() - lastSentAt < cooldownSeconds * 1000) {
@@ -94,13 +106,13 @@ router.post("/register/send-code", async (req, res) => {
         }
     }
 
-    const code = generateSmsCode();
-    const codeHash = getSmsCodeHash(phone, purpose, code);
-    const ttlSeconds = Number.parseInt(process.env.SMS_CODE_TTL_SECONDS || "300", 10);
+    const code = generateVerificationCode();
+    const codeHash = getVerificationCodeHash(email, purpose, code);
+    const ttlSeconds = Number.parseInt(process.env.EMAIL_CODE_TTL_SECONDS || "300", 10);
 
     const result = await db.prepare(`
-        INSERT INTO phone_verification_codes (
-            phone,
+        INSERT INTO verification_codes (
+            contact,
             purpose,
             code_hash,
             verify_attempts,
@@ -109,15 +121,19 @@ router.post("/register/send-code", async (req, res) => {
             last_sent_at,
             expires_at
         ) VALUES (?, ?, ?, 0, 1, ?, CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? SECOND))
-    `).run(phone, purpose, codeHash, normalizeText(req.ip || ""), ttlSeconds);
+    `).run(email, purpose, codeHash, normalizeText(req.ip || ""), ttlSeconds);
 
     try {
-        await sendSmsCode({ phone, code, purpose });
+        await sendVerificationEmail({
+            contact: email,
+            code,
+            purpose
+        });
     } catch (error) {
-        await db.prepare("DELETE FROM phone_verification_codes WHERE id=?").run(result.lastInsertRowid);
+        await db.prepare("DELETE FROM verification_codes WHERE id=?").run(result.lastInsertRowid);
         return res.status(500).json({
             code: 500,
-            message: error.message || "短信发送失败"
+            message: error.message || "验证码邮件发送失败"
         });
     }
 
@@ -131,71 +147,71 @@ router.post("/register", async (req, res) => {
     const username = normalizeText(req.body.username);
     const password = String(req.body.password || "");
     const nickname = normalizeText(req.body.nickname) || username;
-    const phone = normalizePhone(req.body.phone);
-    const phoneCode = normalizeText(req.body.phone_code || req.body.phoneCode);
+    const email = normalizeEmail(req.body.email);
+    const emailCode = normalizeText(req.body.email_code || req.body.emailCode);
 
     if (!username || !password) {
         return res.json({ code: 400, message: "请填写用户名和密码" });
     }
-    if (!phone) {
-        return res.json({ code: 400, message: "请填写手机号" });
+    if (!email) {
+        return res.json({ code: 400, message: "请填写邮箱地址" });
     }
-    if (!isValidPhone(phone)) {
-        return res.json({ code: 400, message: "请输入正确的 11 位手机号" });
+    if (!isValidEmail(email)) {
+        return res.json({ code: 400, message: "请输入正确的邮箱地址" });
+    }
+    if (!emailCode) {
+        return res.json({ code: 400, message: "请填写邮箱验证码" });
+    }
+    if (!isValidVerificationCode(emailCode)) {
+        return res.json({ code: 400, message: "请输入 6 位邮箱验证码" });
     }
     if (password.length < 6) {
         return res.json({ code: 400, message: "密码至少需要 6 位" });
-    }
-    if (!phoneCode) {
-        return res.json({ code: 400, message: "请填写短信验证码" });
-    }
-    if (!isValidSmsCode(phoneCode)) {
-        return res.json({ code: 400, message: "请输入 6 位短信验证码" });
     }
 
     const db = getDb();
     if (await db.prepare("SELECT id FROM users WHERE username=?").get(username)) {
         return res.json({ code: 400, message: "用户名已存在" });
     }
-    if (await db.prepare("SELECT id FROM users WHERE phone=?").get(phone)) {
-        return res.json({ code: 400, message: "手机号已被注册" });
+    if (await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+        return res.json({ code: 400, message: "邮箱已被注册" });
     }
 
-    const verification = await getLatestPhoneVerification(db, phone, "register");
+    const verification = await getLatestVerificationRecord(db, email, "register");
     if (!verification) {
-        return res.json({ code: 400, message: "请先获取短信验证码" });
+        return res.json({ code: 400, message: "请先获取邮箱验证码" });
     }
     if (verification.consumed_at) {
-        return res.json({ code: 400, message: "短信验证码已使用，请重新获取" });
+        return res.json({ code: 400, message: "邮箱验证码已使用，请重新获取" });
     }
     if (verification.expires_at && new Date(verification.expires_at).getTime() < Date.now()) {
-        return res.json({ code: 400, message: "短信验证码已过期，请重新获取" });
+        return res.json({ code: 400, message: "邮箱验证码已过期，请重新获取" });
     }
-    if (verification.code_hash !== getSmsCodeHash(phone, "register", phoneCode)) {
+    if (verification.code_hash !== getVerificationCodeHash(email, "register", emailCode)) {
         const nextAttempts = Number(verification.verify_attempts || 0) + 1;
         await db.prepare(`
-            UPDATE phone_verification_codes
+            UPDATE verification_codes
             SET verify_attempts=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         `).run(nextAttempts, verification.id);
         if (nextAttempts >= 5) {
             await db.prepare(`
-                UPDATE phone_verification_codes
+                UPDATE verification_codes
                 SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
             `).run(verification.id);
         }
-        return res.json({ code: 400, message: "短信验证码不正确" });
+        return res.json({ code: 400, message: "邮箱验证码不正确" });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await db.prepare(`
-        INSERT INTO users (username, password_hash, nickname, phone)
+        INSERT INTO users (username, password_hash, nickname, email)
         VALUES (?, ?, ?, ?)
-    `).run(username, passwordHash, nickname, phone);
+    `).run(username, passwordHash, nickname, email);
 
     await db.prepare(`
-        UPDATE phone_verification_codes
+        UPDATE verification_codes
         SET consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
         WHERE id=?
     `).run(verification.id);

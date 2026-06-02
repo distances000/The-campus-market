@@ -13,12 +13,14 @@ const BASE_TABLES = [
                 campus VARCHAR(64) NOT NULL DEFAULT '',
                 bio VARCHAR(255) NOT NULL DEFAULT '',
                 phone VARCHAR(32) NOT NULL DEFAULT '',
+                email VARCHAR(128) NULL DEFAULT NULL,
                 is_admin TINYINT(1) NOT NULL DEFAULT 0,
                 can_moderate TINYINT(1) NOT NULL DEFAULT 0,
                 must_change_password TINYINT(1) NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY uq_users_username (username),
+                UNIQUE KEY uq_users_email (email),
                 KEY idx_users_admin (is_admin),
                 KEY idx_users_moderator (can_moderate)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -44,6 +46,29 @@ const BASE_TABLES = [
                 KEY idx_phone_verification_purpose (purpose),
                 KEY idx_phone_verification_expires (expires_at),
                 KEY idx_phone_verification_status (phone, purpose, consumed_at, expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `
+    },
+    {
+        name: "verification_codes",
+        sql: `
+            CREATE TABLE IF NOT EXISTS verification_codes (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                contact VARCHAR(128) NOT NULL,
+                purpose VARCHAR(32) NOT NULL,
+                code_hash VARCHAR(255) NOT NULL,
+                verify_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+                send_count INT UNSIGNED NOT NULL DEFAULT 1,
+                request_ip VARCHAR(64) NOT NULL DEFAULT '',
+                last_sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                consumed_at DATETIME NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_verification_contact (contact),
+                KEY idx_verification_purpose (purpose),
+                KEY idx_verification_expires (expires_at),
+                KEY idx_verification_status (contact, purpose, consumed_at, expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `
     },
@@ -294,8 +319,8 @@ const SCHEMA_EXPECTATIONS = [
     },
     {
         table: "users",
-        columns: ["phone", "is_admin", "can_moderate", "must_change_password"],
-        indexes: ["uq_users_username", "idx_users_admin", "idx_users_moderator"]
+        columns: ["phone", "email", "is_admin", "can_moderate", "must_change_password"],
+        indexes: ["uq_users_username", "uq_users_email", "idx_users_admin", "idx_users_moderator"]
     },
     {
         table: "phone_verification_codes",
@@ -305,6 +330,26 @@ const SCHEMA_EXPECTATIONS = [
             "idx_phone_verification_purpose",
             "idx_phone_verification_expires",
             "idx_phone_verification_status"
+        ]
+    },
+    {
+        table: "verification_codes",
+        columns: [
+            "contact",
+            "purpose",
+            "code_hash",
+            "verify_attempts",
+            "send_count",
+            "request_ip",
+            "last_sent_at",
+            "expires_at",
+            "consumed_at"
+        ],
+        indexes: [
+            "idx_verification_contact",
+            "idx_verification_purpose",
+            "idx_verification_expires",
+            "idx_verification_status"
         ]
     },
     {
@@ -484,23 +529,25 @@ const migrations = [
         key: "20260602_002_users_upgrade",
         async run(ctx) {
             await ctx.ensureColumn("users", "phone", "VARCHAR(32) NOT NULL DEFAULT ''");
+            await ctx.ensureColumn("users", "email", "VARCHAR(128) NULL DEFAULT NULL");
             await ctx.ensureColumn("users", "is_admin", "TINYINT(1) NOT NULL DEFAULT 0");
             await ctx.ensureColumn("users", "can_moderate", "TINYINT(1) NOT NULL DEFAULT 0");
             await ctx.ensureColumn("users", "must_change_password", "TINYINT(1) NOT NULL DEFAULT 0");
             await ctx.ensureIndex("users", "uq_users_username", "UNIQUE KEY `uq_users_username` (`username`)");
+            await ctx.ensureIndex("users", "uq_users_email", "UNIQUE KEY `uq_users_email` (`email`)");
             await ctx.ensureIndex("users", "idx_users_admin", "KEY `idx_users_admin` (`is_admin`)");
             await ctx.ensureIndex("users", "idx_users_moderator", "KEY `idx_users_moderator` (`can_moderate`)");
         }
     },
     {
-        key: "20260602_002_phone_verification_upgrade",
+        key: "20260602_002_verification_codes_upgrade",
         async run(ctx) {
             await ctx.ensureTable(
-                "phone_verification_codes",
+                "verification_codes",
                 `
-                    CREATE TABLE IF NOT EXISTS phone_verification_codes (
+                    CREATE TABLE IF NOT EXISTS verification_codes (
                         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                        phone VARCHAR(32) NOT NULL,
+                        contact VARCHAR(128) NOT NULL,
                         purpose VARCHAR(32) NOT NULL,
                         code_hash VARCHAR(255) NOT NULL,
                         verify_attempts INT UNSIGNED NOT NULL DEFAULT 0,
@@ -511,10 +558,10 @@ const migrations = [
                         consumed_at DATETIME NULL,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        KEY idx_phone_verification_phone (phone),
-                        KEY idx_phone_verification_purpose (purpose),
-                        KEY idx_phone_verification_expires (expires_at),
-                        KEY idx_phone_verification_status (phone, purpose, consumed_at, expires_at)
+                        KEY idx_verification_contact (contact),
+                        KEY idx_verification_purpose (purpose),
+                        KEY idx_verification_expires (expires_at),
+                        KEY idx_verification_status (contact, purpose, consumed_at, expires_at)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 `
             );

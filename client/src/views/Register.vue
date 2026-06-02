@@ -14,20 +14,19 @@
                 <el-form-item prop="nickname">
                     <el-input v-model="form.nickname" placeholder="请输入昵称" :prefix-icon="Edit" autocomplete="nickname" />
                 </el-form-item>
-                <el-form-item prop="phone">
+                <el-form-item prop="email">
                     <el-input
-                        v-model="form.phone"
-                        placeholder="请输入手机号"
-                        maxlength="11"
-                        autocomplete="tel"
-                        @blur="handlePhoneBlur"
+                        v-model="form.email"
+                        placeholder="请输入邮箱地址"
+                        autocomplete="email"
+                        @blur="handleEmailBlur"
                     />
                 </el-form-item>
-                <el-form-item prop="phoneCode">
+                <el-form-item prop="emailCode">
                     <div class="code-row">
                         <el-input
-                            v-model="form.phoneCode"
-                            placeholder="请输入短信验证码"
+                            v-model="form.emailCode"
+                            placeholder="请输入邮箱验证码"
                             maxlength="6"
                             autocomplete="one-time-code"
                         />
@@ -40,13 +39,13 @@
                             {{ codeButtonText }}
                         </el-button>
                     </div>
-                    <div class="form-tip">验证码会发送到你填写的手机号，5 分钟内有效。</div>
+                    <div class="form-tip">验证码会发送到你填写的邮箱，5 分钟内有效。</div>
                 </el-form-item>
                 <el-form-item prop="password">
                     <el-input
                         v-model="form.password"
                         type="password"
-                        placeholder="请输入密码（至少6位）"
+                        placeholder="请输入密码（至少 6 位）"
                         :prefix-icon="Lock"
                         show-password
                         autocomplete="new-password"
@@ -82,7 +81,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "../utils/message";
 import { useUserStore } from "../stores/user";
-import { register as regApi, sendRegisterPhoneCode } from "../api/auth";
+import { register as regApi, sendRegisterEmailCode } from "../api/auth";
 import { User, Edit, Lock } from "../components/element-icons";
 
 const router = useRouter();
@@ -93,22 +92,22 @@ const formRef = ref(null);
 const loading = ref(false);
 const sendingCode = ref(false);
 const codeCountdown = ref(0);
-const lastSentPhone = ref("");
+const lastSentEmail = ref("");
 
 let countdownTimer = null;
 
 const form = reactive({
     username: "",
     nickname: "",
-    phone: "",
-    phoneCode: "",
+    email: "",
+    emailCode: "",
     password: "",
     passwordConfirm: ""
 });
 
 const redirectTo = computed(() => typeof route.query.redirect === "string" ? route.query.redirect : "/home");
 const loginLink = computed(() => redirectTo.value ? { path: "/login", query: { redirect: redirectTo.value } } : "/login");
-const sendCodeDisabled = computed(() => !isPhoneReady() || sendingCode.value || codeCountdown.value > 0);
+const sendCodeDisabled = computed(() => !isEmailReady() || sendingCode.value || codeCountdown.value > 0);
 const codeButtonText = computed(() => {
     if (sendingCode.value) {
         return "发送中";
@@ -116,30 +115,30 @@ const codeButtonText = computed(() => {
     if (codeCountdown.value > 0) {
         return `${codeCountdown.value}s 后重发`;
     }
-    return lastSentPhone.value ? "重新发送" : "发送验证码";
+    return lastSentEmail.value ? "重新发送" : "发送验证码";
 });
 
-function validatePhone(rule, value, callback) {
-    const phone = String(value || "").trim();
-    if (!phone) {
-        callback(new Error("请输入手机号"));
+function validateEmail(rule, value, callback) {
+    const email = String(value || "").trim();
+    if (!email) {
+        callback(new Error("请输入邮箱地址"));
         return;
     }
-    if (!/^1\d{10}$/.test(phone)) {
-        callback(new Error("请输入正确的 11 位手机号"));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        callback(new Error("请输入正确的邮箱地址"));
         return;
     }
     callback();
 }
 
-function validatePhoneCode(rule, value, callback) {
+function validateEmailCode(rule, value, callback) {
     const code = String(value || "").trim();
     if (!code) {
-        callback(new Error("请输入短信验证码"));
+        callback(new Error("请输入邮箱验证码"));
         return;
     }
     if (!/^\d{6}$/.test(code)) {
-        callback(new Error("请输入 6 位短信验证码"));
+        callback(new Error("请输入 6 位邮箱验证码"));
         return;
     }
     callback();
@@ -147,8 +146,8 @@ function validatePhoneCode(rule, value, callback) {
 
 const rules = {
     username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
-    phone: [{ required: true, validator: validatePhone, trigger: "blur" }],
-    phoneCode: [{ required: true, validator: validatePhoneCode, trigger: "blur" }],
+    email: [{ required: true, validator: validateEmail, trigger: "blur" }],
+    emailCode: [{ required: true, validator: validateEmailCode, trigger: "blur" }],
     password: [
         { required: true, message: "请输入密码", trigger: "blur" },
         { validator: (rule, value, callback) => { if ((value || "").length < 6) callback(new Error("密码至少 6 位")); else callback(); }, trigger: "blur" }
@@ -159,12 +158,12 @@ const rules = {
     ]
 };
 
-function getPhone() {
-    return String(form.phone || "").trim();
+function getEmail() {
+    return String(form.email || "").trim().toLowerCase();
 }
 
-function isPhoneReady() {
-    return /^1\d{10}$/.test(getPhone());
+function isEmailReady() {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(getEmail());
 }
 
 function clearCountdown() {
@@ -176,7 +175,7 @@ function clearCountdown() {
 
 function startCountdown() {
     clearCountdown();
-    const ttl = Number.parseInt(import.meta.env.VITE_SMS_CODE_COOLDOWN_SECONDS || "60", 10);
+    const ttl = Number.parseInt(import.meta.env.VITE_EMAIL_CODE_COOLDOWN_SECONDS || "60", 10);
     codeCountdown.value = Number.isFinite(ttl) && ttl > 0 ? ttl : 60;
     countdownTimer = setInterval(() => {
         if (codeCountdown.value <= 1) {
@@ -189,9 +188,9 @@ function startCountdown() {
 }
 
 async function handleSendCode() {
-    const phone = getPhone();
-    if (!isPhoneReady()) {
-        ElMessage.warning("请输入正确的 11 位手机号");
+    const email = getEmail();
+    if (!isEmailReady()) {
+        ElMessage.warning("请输入正确的邮箱地址");
         return;
     }
     if (sendingCode.value || codeCountdown.value > 0) {
@@ -200,21 +199,19 @@ async function handleSendCode() {
 
     sendingCode.value = true;
     try {
-        await sendRegisterPhoneCode(phone);
-        lastSentPhone.value = phone;
-        form.phoneCode = "";
+        await sendRegisterEmailCode(email);
+        lastSentEmail.value = email;
+        form.emailCode = "";
         startCountdown();
         ElMessage.success("验证码已发送");
-    } catch {
-        // 短信接口的错误提示由统一拦截器处理
     } finally {
         sendingCode.value = false;
     }
 }
 
-function handlePhoneBlur() {
-    const phone = getPhone();
-    if (isPhoneReady() && phone !== lastSentPhone.value) {
+function handleEmailBlur() {
+    const email = getEmail();
+    if (isEmailReady() && email !== lastSentEmail.value) {
         handleSendCode();
     }
 }
@@ -227,14 +224,14 @@ async function handleRegister() {
 
     loading.value = true;
     try {
-        const r = await regApi(
+        const response = await regApi(
             form.username,
             form.password,
             form.nickname || form.username,
-            getPhone(),
-            String(form.phoneCode || "").trim()
+            getEmail(),
+            String(form.emailCode || "").trim()
         );
-        userStore.setAuth(r.data.token, r.data.user);
+        userStore.setAuth(response.data.token, response.data.user);
         userStore.authInitialized = true;
         ElMessage.success("注册成功");
         await router.replace(redirectTo.value || "/home");
@@ -243,19 +240,19 @@ async function handleRegister() {
     }
 }
 
-watch(() => form.phone, (next, prev) => {
-    const nextPhone = String(next || "").trim();
-    const prevPhone = String(prev || "").trim();
-    if (nextPhone === prevPhone) {
+watch(() => form.email, (next, prev) => {
+    const nextEmail = String(next || "").trim().toLowerCase();
+    const prevEmail = String(prev || "").trim().toLowerCase();
+    if (nextEmail === prevEmail) {
         return;
     }
 
-    if (form.phoneCode) {
-        form.phoneCode = "";
+    if (form.emailCode) {
+        form.emailCode = "";
     }
 
-    if (lastSentPhone.value && nextPhone !== lastSentPhone.value) {
-        lastSentPhone.value = "";
+    if (lastSentEmail.value && nextEmail !== lastSentEmail.value) {
+        lastSentEmail.value = "";
         codeCountdown.value = 0;
         clearCountdown();
     }
