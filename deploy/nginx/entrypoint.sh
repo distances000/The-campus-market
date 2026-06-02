@@ -14,7 +14,9 @@ primary_domain() {
 
 render_http_config() {
     NGINX_SERVER_NAME="${SERVER_NAMES:-_}" \
-        envsubst '${NGINX_SERVER_NAME}' \
+    NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-20m}" \
+    UPLOAD_PUBLIC_PREFIX="${UPLOAD_PUBLIC_PREFIX:-/uploads}" \
+        envsubst '${NGINX_SERVER_NAME} ${NGINX_CLIENT_MAX_BODY_SIZE} ${UPLOAD_PUBLIC_PREFIX}' \
         < "${TEMPLATE_DIR}/http.conf.template" \
         > "${CONF_FILE}"
 }
@@ -22,7 +24,9 @@ render_http_config() {
 render_https_config() {
     NGINX_SERVER_NAME="${SERVER_NAMES:-_}" \
     PRIMARY_DOMAIN="${PRIMARY_DOMAIN:-}" \
-        envsubst '${NGINX_SERVER_NAME} ${PRIMARY_DOMAIN}' \
+    NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-20m}" \
+    UPLOAD_PUBLIC_PREFIX="${UPLOAD_PUBLIC_PREFIX:-/uploads}" \
+        envsubst '${NGINX_SERVER_NAME} ${PRIMARY_DOMAIN} ${NGINX_CLIENT_MAX_BODY_SIZE} ${UPLOAD_PUBLIC_PREFIX}' \
         < "${TEMPLATE_DIR}/https.conf.template" \
         > "${CONF_FILE}"
 }

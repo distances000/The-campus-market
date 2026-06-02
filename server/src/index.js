@@ -3,19 +3,29 @@ const http = require("http");
 const { loadAppEnv } = require("./config/loadEnv");
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
 const { initDatabase } = require("./models/init");
 const { attachRealtimeServer } = require("./utils/realtime");
+const { getRuntimeConfig, validateRuntimeConfig, formatRuntimeSummary } = require("./config/runtime");
+const { UPLOAD_DIR, UPLOAD_PUBLIC_PREFIX } = require("./utils/upload");
 const app = express();
 
 loadAppEnv();
 
-const PORT = process.env.PORT || 3000;
+const runtimeConfig = getRuntimeConfig();
+const runtimeCheck = validateRuntimeConfig(runtimeConfig);
+
+if (!runtimeCheck.valid) {
+    console.error("生产/运行环境配置不完整：");
+    runtimeCheck.errors.forEach((message) => console.error(`- ${message}`));
+    process.exit(1);
+}
+
+const PORT = runtimeConfig.port;
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+app.use(UPLOAD_PUBLIC_PREFIX, express.static(UPLOAD_DIR));
 
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/products", require("./routes/products"));
@@ -38,6 +48,7 @@ async function bootstrap() {
     await initDatabase();
     const server = http.createServer(app);
     attachRealtimeServer(server);
+    console.log("Runtime config:", formatRuntimeSummary(runtimeConfig));
     server.listen(PORT, () => console.log("Server running at http://localhost:" + PORT));
 }
 

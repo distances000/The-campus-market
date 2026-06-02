@@ -25,8 +25,29 @@ services:
         environment:
             NODE_ENV: production
             PORT: 3000
+            APP_BASE_URL: ${APP_BASE_URL}
+            APP_PRIMARY_DOMAIN: ${APP_PRIMARY_DOMAIN}
+            ENABLE_HTTPS: ${ENABLE_HTTPS}
+            DOMAINS: ${DOMAINS}
             JWT_SECRET: ${JWT_SECRET}
+            ADMIN_BOOTSTRAP_KEY: ${ADMIN_BOOTSTRAP_KEY}
             DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+            MYSQL_CONNECTION_LIMIT: ${MYSQL_CONNECTION_LIMIT}
+            EMAIL_PROVIDER: ${EMAIL_PROVIDER}
+            EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET}
+            EMAIL_CODE_TTL_SECONDS: ${EMAIL_CODE_TTL_SECONDS}
+            EMAIL_CODE_COOLDOWN_SECONDS: ${EMAIL_CODE_COOLDOWN_SECONDS}
+            EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME}
+            EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST}
+            EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT}
+            EMAIL_SMTP_SECURE: ${EMAIL_SMTP_SECURE}
+            EMAIL_SMTP_USER: ${EMAIL_SMTP_USER}
+            EMAIL_SMTP_PASS: ${EMAIL_SMTP_PASS}
+            EMAIL_FROM: ${EMAIL_FROM}
+            EMAIL_SMTP_REJECT_UNAUTHORIZED: ${EMAIL_SMTP_REJECT_UNAUTHORIZED}
+            EMAIL_SMTP_TIMEOUT_MS: ${EMAIL_SMTP_TIMEOUT_MS}
+            UPLOAD_DIR: ${UPLOAD_DIR}
+            UPLOAD_PUBLIC_PREFIX: ${UPLOAD_PUBLIC_PREFIX}
         volumes:
             - server_uploads:/app/uploads
         depends_on:
@@ -59,9 +80,11 @@ services:
         environment:
             ENABLE_HTTPS: ${ENABLE_HTTPS}
             DOMAINS: ${DOMAINS}
+            NGINX_CLIENT_MAX_BODY_SIZE: ${UPLOAD_MAX_BODY_SIZE}
+            UPLOAD_PUBLIC_PREFIX: ${UPLOAD_PUBLIC_PREFIX}
         ports:
-            - "80:80"
-            - "443:443"
+            - "${HTTP_PORT:-80}:80"
+            - "${HTTPS_PORT:-443}:443"
         volumes:
             - certbot_www:/var/www/certbot
             - letsencrypt:/etc/letsencrypt

@@ -1,9 +1,11 @@
 const fs = require("fs");
 const fsp = fs.promises;
 const path = require("path");
+const { getRuntimeConfig } = require("../config/runtime");
 
-const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
-const UPLOAD_PUBLIC_PREFIX = "/uploads/";
+const runtimeConfig = getRuntimeConfig();
+const UPLOAD_DIR = runtimeConfig.uploadDir;
+const UPLOAD_PUBLIC_PREFIX = `${runtimeConfig.uploadPublicPrefix}/`;
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_COUNT = 9;
 const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"];

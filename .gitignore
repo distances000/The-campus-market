@@ -19,6 +19,8 @@ pnpm-debug.log*
 # env files
 .env
 .env.*
+!.env.example
+!server/.env.example
 
 # IDE
 .idea/
