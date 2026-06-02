@@ -135,6 +135,15 @@
     - 恢复时需要停止并在完成后拉起的服务列表
     - 建议值：`nginx frontend server1 server2`
 
+### 发布回滚
+
+- `RELEASE_STATE_DIR`
+    - 发布快照和回滚清单输出目录
+    - 建议值：`./release-state`
+- `RELEASE_ROLLBACK_SERVICES`
+    - 需要纳入快速回滚的服务列表
+    - 建议值：`frontend server1 server2 nginx certbot`
+
 ## 3. 生产环境最小示例
 
 ```env
@@ -177,6 +186,9 @@ BACKUP_ROOT_DIR=./backups
 BACKUP_RETENTION_DAYS=7
 RESTORE_STOP_APPLICATION=true
 RESTORE_STOP_SERVICES=nginx frontend server1 server2
+
+RELEASE_STATE_DIR=./release-state
+RELEASE_ROLLBACK_SERVICES=frontend server1 server2 nginx certbot
 ```
 
 ## 4. 启动前检查
@@ -246,9 +258,22 @@ docker compose up -d --build
     - `mysql.sql`
     - `uploads.tar.gz`
 
+### 新版本上线后需要回滚
+
+说明：
+
+- 发布前必须先执行发布快照脚本
+- 快速回滚只恢复应用镜像，不自动恢复数据库
+- 如果新版本已经写坏数据库或上传目录，回滚应用后还要执行数据恢复
+
+参考文档：
+
+- [rollback-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\release\rollback-plan.md)
+
 ## 7. HTTPS 验收
 
 上线前请继续按下面文档逐项确认：
 
 - [https-checklist.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\https-checklist.md)
 - [backup-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)
+- [rollback-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\release\rollback-plan.md)

@@ -163,6 +163,29 @@ sh deploy/backup/restore-backup.sh backups/20260602-120000 --force
 
 - [backup-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)
 
+## 发布回滚
+
+项目已经补了发布前快照和快速回滚脚本：
+
+- [prepare-release.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\release\prepare-release.sh)
+- [rollback-release.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\release\rollback-release.sh)
+
+发布前先执行：
+
+```bash
+sh deploy/release/prepare-release.sh
+```
+
+如果新版本异常，执行：
+
+```bash
+sh deploy/release/rollback-release.sh release-state/releases/20260602-120000/release.env --force
+```
+
+完整说明见：
+
+- [rollback-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\release\rollback-plan.md)
+
 ## 负载均衡说明
 
 Nginx 当前会把后端流量分发到：

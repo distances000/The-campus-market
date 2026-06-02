@@ -36,3 +36,4 @@ server/data/*.db-shm
 server/data/*.db-wal
 server/uploads/
 backups/
+release-state/

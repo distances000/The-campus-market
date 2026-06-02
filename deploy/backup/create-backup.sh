@@ -15,7 +15,7 @@ BACKUP_ROOT_DIR=${BACKUP_ROOT_DIR:-"$PROJECT_ROOT/backups"}
 BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
 MYSQL_SERVICE=${MYSQL_SERVICE:-mysql}
 UPLOADS_SOURCE_SERVICE=${UPLOADS_SOURCE_SERVICE:-server1}
-TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+TIMESTAMP=${BACKUP_TIMESTAMP:-$(date +"%Y%m%d-%H%M%S")}
 TARGET_DIR="$BACKUP_ROOT_DIR/$TIMESTAMP"
 
 mkdir -p "$TARGET_DIR"
@@ -45,3 +45,7 @@ if [ "$BACKUP_RETENTION_DAYS" -gt 0 ] 2>/dev/null; then
 fi
 
 echo "[backup] completed: $TARGET_DIR"
+
+if [ "${BACKUP_PRINT_PATH:-false}" = "true" ]; then
+    printf '%s\n' "$TARGET_DIR"
+fi
