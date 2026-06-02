@@ -183,6 +183,22 @@ const BASE_TABLES = [
         `
     },
     {
+        name: "realtime_events",
+        sql: `
+            CREATE TABLE IF NOT EXISTS realtime_events (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                target_user_id BIGINT UNSIGNED NOT NULL,
+                event_type VARCHAR(64) NOT NULL,
+                payload_json LONGTEXT NOT NULL,
+                origin_instance_id VARCHAR(96) NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_realtime_events_user_id (target_user_id, id),
+                KEY idx_realtime_events_created (created_at),
+                KEY idx_realtime_events_origin (origin_instance_id, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `
+    },
+    {
         name: "favorites",
         sql: `
             CREATE TABLE IF NOT EXISTS favorites (
@@ -382,6 +398,11 @@ const SCHEMA_EXPECTATIONS = [
         table: "notifications",
         columns: ["actor_id", "kind", "event_type", "title", "content", "object_type", "object_id", "extra_json", "is_read"],
         indexes: ["idx_notifications_user", "idx_notifications_kind", "idx_notifications_user_kind_read", "idx_notifications_created"]
+    },
+    {
+        table: "realtime_events",
+        columns: ["target_user_id", "event_type", "payload_json", "origin_instance_id", "created_at"],
+        indexes: ["idx_realtime_events_user_id", "idx_realtime_events_created", "idx_realtime_events_origin"]
     },
     {
         table: "favorites",
@@ -695,6 +716,50 @@ const migrations = [
                 "idx_password_reset_requests_created",
                 "KEY `idx_password_reset_requests_created` (`created_at`)"
             );
+        }
+    },
+    {
+        key: "20260602_009_realtime_events_upgrade",
+        async run(ctx) {
+            await ctx.ensureTable(
+                "realtime_events",
+                `
+                    CREATE TABLE IF NOT EXISTS realtime_events (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        target_user_id BIGINT UNSIGNED NOT NULL,
+                        event_type VARCHAR(64) NOT NULL,
+                        payload_json LONGTEXT NOT NULL,
+                        origin_instance_id VARCHAR(96) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        KEY idx_realtime_events_user_id (target_user_id, id),
+                        KEY idx_realtime_events_created (created_at),
+                        KEY idx_realtime_events_origin (origin_instance_id, id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                `
+            );
+            await ctx.ensureIndex(
+                "realtime_events",
+                "idx_realtime_events_user_id",
+                "KEY `idx_realtime_events_user_id` (`target_user_id`, `id`)"
+            );
+            await ctx.ensureIndex(
+                "realtime_events",
+                "idx_realtime_events_created",
+                "KEY `idx_realtime_events_created` (`created_at`)"
+            );
+            await ctx.ensureIndex(
+                "realtime_events",
+                "idx_realtime_events_origin",
+                "KEY `idx_realtime_events_origin` (`origin_instance_id`, `id`)"
+            );
+        }
+    },
+    {
+        key: "20260602_010_schema_drift_fix",
+        async run(ctx) {
+            await ctx.ensureColumn("users", "email", "VARCHAR(128) NULL DEFAULT NULL");
+            await ctx.ensureIndex("users", "uq_users_email", "UNIQUE KEY `uq_users_email` (`email`)");
+            await ctx.ensureColumn("password_reset_requests", "request_email", "VARCHAR(128) NOT NULL DEFAULT ''");
         }
     }
 ];

@@ -124,7 +124,7 @@ async function markConversationAsRead(db, currentUserId, peerUserId) {
         });
     } else if (result.changes > 0) {
         await pushUnreadSummary(db, currentUserId);
-        pushConversationRefresh(currentUserId, { peer_id: Number(peerUserId) });
+        await pushConversationRefresh(db, currentUserId, { peer_id: Number(peerUserId) });
     }
 
     return {
@@ -287,7 +287,7 @@ router.delete("/conversations/:userId", authMiddleware, async (req, res) => {
         ON DUPLICATE KEY UPDATE hidden_at=CURRENT_TIMESTAMP
     `).run(req.user.id, peerUserId);
 
-    pushConversationRefresh(req.user.id, { peer_id: peerUserId, type: "conversation_hidden" });
+    await pushConversationRefresh(db, req.user.id, { peer_id: peerUserId, type: "conversation_hidden" });
     await pushUnreadSummary(db, req.user.id);
 
     return res.json({
@@ -369,8 +369,8 @@ router.post("/friends/:friendId", authMiddleware, async (req, res) => {
         objectId: req.user.id
     });
 
-    pushConversationRefresh(req.user.id, { peer_id: friendId, type: "friend_added" });
-    pushConversationRefresh(friendId, { peer_id: req.user.id, type: "friend_added" });
+    await pushConversationRefresh(db, req.user.id, { peer_id: friendId, type: "friend_added" });
+    await pushConversationRefresh(db, friendId, { peer_id: req.user.id, type: "friend_added" });
 
     return res.json({
         code: 200,
@@ -397,8 +397,8 @@ router.delete("/friends/:friendId", authMiddleware, async (req, res) => {
         await tx.prepare("DELETE FROM friends WHERE user_id=? AND friend_id=?").run(friendId, req.user.id);
     });
 
-    pushConversationRefresh(req.user.id, { peer_id: friendId, type: "friend_removed" });
-    pushConversationRefresh(friendId, { peer_id: req.user.id, type: "friend_removed" });
+    await pushConversationRefresh(db, req.user.id, { peer_id: friendId, type: "friend_removed" });
+    await pushConversationRefresh(db, friendId, { peer_id: req.user.id, type: "friend_removed" });
     await pushUnreadSummary(db, req.user.id);
     await pushUnreadSummary(db, friendId);
 

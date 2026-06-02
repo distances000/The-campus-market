@@ -1,10 +1,22 @@
 const crypto = require("crypto");
 const { URL } = require("url");
 const { verifyToken } = require("../middleware/auth");
+const { getDb } = require("../config/db");
 
 const WS_PATH = "/ws";
 const MAGIC_WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const REALTIME_INSTANCE_ID = `${process.pid}-${crypto.randomUUID()}`;
+const REALTIME_EVENT_POLL_INTERVAL_MS = Number.parseInt(process.env.REALTIME_EVENT_POLL_INTERVAL_MS || "1000", 10);
+const REALTIME_EVENT_BATCH_SIZE = Number.parseInt(process.env.REALTIME_EVENT_BATCH_SIZE || "200", 10);
+const REALTIME_EVENT_RETENTION_HOURS = Number.parseInt(process.env.REALTIME_EVENT_RETENTION_HOURS || "24", 10);
+const REALTIME_EVENT_CLEANUP_INTERVAL_MS = Number.parseInt(process.env.REALTIME_EVENT_CLEANUP_INTERVAL_MS || String(10 * 60 * 1000), 10);
+
 const connections = new Map();
+let pollerStarted = false;
+let pollerTimer = null;
+let lastEventId = 0;
+let isPolling = false;
+let lastCleanupAt = 0;
 
 function normalizeUserId(userId) {
     return String(userId);
@@ -76,6 +88,107 @@ function sendEvent(userId, type, payload) {
         } catch {
             removeConnection(userId, connectionId);
         }
+    }
+}
+
+async function publishUserEvent(db, userId, type, payload) {
+    if (!db || !userId || !type) {
+        return null;
+    }
+
+    const normalizedUserId = Number(userId);
+    const payloadJson = JSON.stringify(payload ?? {});
+    const result = await db.prepare(`
+        INSERT INTO realtime_events (
+            target_user_id,
+            event_type,
+            payload_json,
+            origin_instance_id
+        ) VALUES (?, ?, ?, ?)
+    `).run(normalizedUserId, type, payloadJson, REALTIME_INSTANCE_ID);
+
+    sendEvent(normalizedUserId, type, payload);
+    return result.lastInsertRowid || null;
+}
+
+async function fetchLatestRealtimeEventId(db) {
+    const row = await db.prepare(`
+        SELECT MAX(id) AS max_id
+        FROM realtime_events
+    `).get();
+    return Number(row?.max_id || 0);
+}
+
+async function cleanupRealtimeEvents(db, now = Date.now()) {
+    if (now - lastCleanupAt < REALTIME_EVENT_CLEANUP_INTERVAL_MS) {
+        return;
+    }
+
+    lastCleanupAt = now;
+    await db.prepare(`
+        DELETE FROM realtime_events
+        WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)
+    `).run(Math.max(1, REALTIME_EVENT_RETENTION_HOURS));
+}
+
+async function pollRealtimeEvents() {
+    if (isPolling) {
+        return;
+    }
+
+    isPolling = true;
+    try {
+        const db = getDb();
+        let keepPolling = true;
+
+        while (keepPolling) {
+            const rows = await db.prepare(`
+                SELECT id, target_user_id, event_type, payload_json, origin_instance_id
+                FROM realtime_events
+                WHERE id > ?
+                ORDER BY id ASC
+                LIMIT ?
+            `).all(lastEventId, REALTIME_EVENT_BATCH_SIZE);
+
+            if (!rows.length) {
+                keepPolling = false;
+                break;
+            }
+
+            for (const row of rows) {
+                lastEventId = Math.max(lastEventId, Number(row.id || 0));
+                if (row.origin_instance_id === REALTIME_INSTANCE_ID) {
+                    continue;
+                }
+                sendEvent(row.target_user_id, row.event_type, safeJsonParse(row.payload_json, {}));
+            }
+
+            keepPolling = rows.length === REALTIME_EVENT_BATCH_SIZE;
+        }
+
+        await cleanupRealtimeEvents(db);
+    } catch (error) {
+        console.error("Failed to poll realtime events:", error);
+    } finally {
+        isPolling = false;
+    }
+}
+
+async function startRealtimeEventPolling() {
+    if (pollerStarted) {
+        return;
+    }
+
+    pollerStarted = true;
+    const db = getDb();
+    lastEventId = await fetchLatestRealtimeEventId(db);
+    pollerTimer = setInterval(() => {
+        pollRealtimeEvents().catch((error) => {
+            console.error("Realtime poller tick failed:", error);
+        });
+    }, Math.max(250, REALTIME_EVENT_POLL_INTERVAL_MS));
+    if (typeof pollerTimer.unref === "function") {
+        pollerTimer.unref();
     }
 }
 
@@ -180,7 +293,8 @@ function setupSocketLifecycle(user, socket) {
             type: "ready",
             payload: {
                 user_id: user.id,
-                connection_id: connectionId
+                connection_id: connectionId,
+                instance_id: REALTIME_INSTANCE_ID
             }
         })
     });
@@ -233,6 +347,10 @@ function setupSocketLifecycle(user, socket) {
 }
 
 function attachRealtimeServer(server) {
+    startRealtimeEventPolling().catch((error) => {
+        console.error("Failed to start realtime event polling:", error);
+    });
+
     server.on("upgrade", (req, socket) => {
         const auth = authenticateUpgrade(req);
         if (!auth.ok) {
@@ -291,7 +409,9 @@ async function getUnreadSummary(db, userId) {
 }
 
 async function pushUnreadSummary(db, userId) {
-    sendEvent(userId, "unread_summary", await getUnreadSummary(db, userId));
+    const summary = await getUnreadSummary(db, userId);
+    await publishUserEvent(db, userId, "unread_summary", summary);
+    return summary;
 }
 
 async function getMessagePayload(db, messageId) {
@@ -309,8 +429,8 @@ async function getMessagePayload(db, messageId) {
     `).get(messageId) || null;
 }
 
-function pushConversationRefresh(userId, payload = {}) {
-    sendEvent(userId, "conversation_refresh", payload);
+async function pushConversationRefresh(db, userId, payload = {}) {
+    await publishUserEvent(db, userId, "conversation_refresh", payload);
 }
 
 async function emitMessageCreated(db, messageId) {
@@ -319,10 +439,10 @@ async function emitMessageCreated(db, messageId) {
         return null;
     }
 
-    sendEvent(message.sender_id, "message.created", message);
-    sendEvent(message.receiver_id, "message.created", message);
-    pushConversationRefresh(message.sender_id, { peer_id: message.receiver_id, message_id: message.id });
-    pushConversationRefresh(message.receiver_id, { peer_id: message.sender_id, message_id: message.id });
+    await publishUserEvent(db, message.sender_id, "message.created", message);
+    await publishUserEvent(db, message.receiver_id, "message.created", message);
+    await pushConversationRefresh(db, message.sender_id, { peer_id: message.receiver_id, message_id: message.id });
+    await pushConversationRefresh(db, message.receiver_id, { peer_id: message.sender_id, message_id: message.id });
     await pushUnreadSummary(db, message.sender_id);
     await pushUnreadSummary(db, message.receiver_id);
     return message;
@@ -336,10 +456,10 @@ async function emitConversationRead(db, { readerId, peerId, lastReadMessageId })
         read_at: new Date().toISOString()
     };
 
-    sendEvent(readerId, "message.read", payload);
-    sendEvent(peerId, "message.read", payload);
-    pushConversationRefresh(readerId, { peer_id: Number(peerId), last_read_message_id: Number(lastReadMessageId) });
-    pushConversationRefresh(peerId, { peer_id: Number(readerId), last_read_message_id: Number(lastReadMessageId) });
+    await publishUserEvent(db, readerId, "message.read", payload);
+    await publishUserEvent(db, peerId, "message.read", payload);
+    await pushConversationRefresh(db, readerId, { peer_id: Number(peerId), last_read_message_id: Number(lastReadMessageId) });
+    await pushConversationRefresh(db, peerId, { peer_id: Number(readerId), last_read_message_id: Number(lastReadMessageId) });
     await pushUnreadSummary(db, readerId);
     await pushUnreadSummary(db, peerId);
 }
@@ -370,13 +490,14 @@ async function emitNotificationCreated(db, notificationId) {
         return null;
     }
 
-    sendEvent(notification.user_id, "notification.created", notification);
+    await publishUserEvent(db, notification.user_id, "notification.created", notification);
     await pushUnreadSummary(db, notification.user_id);
     return notification;
 }
 
 module.exports = {
     WS_PATH,
+    REALTIME_INSTANCE_ID,
     attachRealtimeServer,
     getUnreadSummary,
     pushUnreadSummary,
