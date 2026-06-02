@@ -120,6 +120,21 @@
 - Nginx 会把 `UPLOAD_MAX_BODY_SIZE` 注入反向代理配置。
 - 后端会把 `UPLOAD_PUBLIC_PREFIX` 作为静态路径暴露出来。
 
+### 备份与恢复
+
+- `BACKUP_ROOT_DIR`
+    - 备份文件在宿主机上的输出目录
+    - 建议值：`./backups`
+- `BACKUP_RETENTION_DAYS`
+    - 自动清理多少天前的旧备份
+    - 建议值：`7`
+- `RESTORE_STOP_APPLICATION`
+    - 恢复时是否自动停止业务服务
+    - 建议值：`true`
+- `RESTORE_STOP_SERVICES`
+    - 恢复时需要停止并在完成后拉起的服务列表
+    - 建议值：`nginx frontend server1 server2`
+
 ## 3. 生产环境最小示例
 
 ```env
@@ -157,6 +172,11 @@ EMAIL_SMTP_TIMEOUT_MS=15000
 UPLOAD_DIR=/app/uploads
 UPLOAD_PUBLIC_PREFIX=/uploads
 UPLOAD_MAX_BODY_SIZE=20m
+
+BACKUP_ROOT_DIR=./backups
+BACKUP_RETENTION_DAYS=7
+RESTORE_STOP_APPLICATION=true
+RESTORE_STOP_SERVICES=nginx frontend server1 server2
 ```
 
 ## 4. 启动前检查
@@ -215,8 +235,20 @@ docker compose up -d --build
 - 检查 `UPLOAD_MAX_BODY_SIZE` 是否大于前端允许上传的图片大小
 - 检查 `UPLOAD_PUBLIC_PREFIX` 是否仍然为 `/uploads`
 
+### 备份或恢复失败
+
+说明：
+
+- 检查 `docker compose ps` 中 `mysql`、`server1` 是否可用
+- 检查根目录 `.env` 是否包含 `MYSQL_DATABASE`、`MYSQL_ROOT_PASSWORD`
+- 检查 `BACKUP_ROOT_DIR` 所在磁盘空间是否足够
+- 恢复前必须确认备份目录里同时存在：
+    - `mysql.sql`
+    - `uploads.tar.gz`
+
 ## 7. HTTPS 验收
 
 上线前请继续按下面文档逐项确认：
 
 - [https-checklist.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\https-checklist.md)
+- [backup-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)

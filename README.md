@@ -135,6 +135,34 @@ docker compose up -d --build
 - `letsencrypt`
     - HTTPS 证书
 
+## 数据备份与恢复
+
+项目已经补了可执行的备份与恢复脚本：
+
+- [create-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\create-backup.sh)
+- [restore-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\restore-backup.sh)
+
+默认备份内容：
+
+- MySQL 业务库
+- 上传文件目录
+
+执行备份：
+
+```bash
+sh deploy/backup/create-backup.sh
+```
+
+执行恢复：
+
+```bash
+sh deploy/backup/restore-backup.sh backups/20260602-120000 --force
+```
+
+完整说明见：
+
+- [backup-plan.md](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)
+
 ## 负载均衡说明
 
 Nginx 当前会把后端流量分发到：
