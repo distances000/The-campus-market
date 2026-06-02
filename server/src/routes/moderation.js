@@ -6,6 +6,7 @@ const { moderationMiddleware } = require("../middleware/moderation");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
 const { createAppError, getUserFacingMessage } = require("../utils/error");
+const { ensureOptionalEnum, ensurePagination, ensurePositiveInt } = require("../utils/validate");
 
 const router = express.Router();
 
@@ -15,16 +16,6 @@ const ALLOWED_RESET_STATUSES = ["pending", "reviewing", "resolved", "rejected"];
 
 function normalizeText(value) {
     return String(value || "").trim();
-}
-
-function normalizePagination(query) {
-    const page = Math.max(parseInt(query.page || 1, 10), 1);
-    const pageSize = Math.min(Math.max(parseInt(query.page_size || 20, 10), 1), 100);
-    return {
-        page,
-        pageSize,
-        offset: (page - 1) * pageSize
-    };
 }
 
 function getReportBaseSql(whereClause = "") {
@@ -87,9 +78,18 @@ router.use(authMiddleware, moderationMiddleware);
 router.get("/reports", async (req, res) => {
     const db = getDb();
     const { status, target_type, keyword } = req.query;
-    const { page, pageSize, offset } = normalizePagination(req.query);
+    let page;
+    let pageSize;
+    let offset;
     const conditions = [];
     const params = [];
+
+    try {
+        ({ page, pageSize, offset } = ensurePagination(req.query, { defaultPageSize: 20, maxPageSize: 100 }));
+        ensureOptionalEnum(status, ALLOWED_REPORT_STATUSES, "举报状态", { defaultValue: "" });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "举报查询参数不合法") });
+    }
 
     if (status) {
         conditions.push("r.status=?");
@@ -137,6 +137,14 @@ router.get("/reports", async (req, res) => {
 
 router.get("/reports/:id", async (req, res) => {
     const db = getDb();
+    let reportId;
+
+    try {
+        reportId = ensurePositiveInt(req.params.id, "举报ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "举报ID不合法") });
+    }
+
     const report = await db.prepare(`
         SELECT
             r.*,
@@ -147,7 +155,7 @@ router.get("/reports/:id", async (req, res) => {
             owner.username AS target_owner_username,
             handler.nickname AS handled_by_name
         ${getReportBaseSql("WHERE r.id=?")}
-    `).get(req.params.id);
+    `).get(reportId);
 
     if (!report) {
         return res.json({ code: 404, message: "举报记录不存在" });
@@ -178,7 +186,15 @@ router.patch("/reports/:id", async (req, res) => {
     }
 
     const db = getDb();
-    const report = await db.prepare("SELECT * FROM reports WHERE id=?").get(req.params.id);
+    let reportId;
+
+    try {
+        reportId = ensurePositiveInt(req.params.id, "举报ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "举报ID不合法") });
+    }
+
+    const report = await db.prepare("SELECT * FROM reports WHERE id=?").get(reportId);
     if (!report) {
         return res.json({ code: 404, message: "举报记录不存在" });
     }
@@ -234,9 +250,18 @@ router.patch("/reports/:id", async (req, res) => {
 router.get("/password-resets", async (req, res) => {
     const db = getDb();
     const { status, keyword } = req.query;
-    const { page, pageSize, offset } = normalizePagination(req.query);
+    let page;
+    let pageSize;
+    let offset;
     const conditions = [];
     const params = [];
+
+    try {
+        ({ page, pageSize, offset } = ensurePagination(req.query, { defaultPageSize: 20, maxPageSize: 100 }));
+        ensureOptionalEnum(status, ALLOWED_RESET_STATUSES, "处理状态", { defaultValue: "" });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "找回密码工单查询参数不合法") });
+    }
 
     if (status) {
         conditions.push("pr.status=?");
@@ -279,6 +304,14 @@ router.get("/password-resets", async (req, res) => {
 
 router.get("/password-resets/:id", async (req, res) => {
     const db = getDb();
+    let requestId;
+
+    try {
+        requestId = ensurePositiveInt(req.params.id, "工单ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "工单ID不合法") });
+    }
+
     const requestInfo = await db.prepare(`
         SELECT
             pr.*,
@@ -288,7 +321,7 @@ router.get("/password-resets/:id", async (req, res) => {
             requester.must_change_password,
             handler.nickname AS handled_by_name
         ${getPasswordResetBaseSql("WHERE pr.id=?")}
-    `).get(req.params.id);
+    `).get(requestId);
 
     if (!requestInfo) {
         return res.json({ code: 404, message: "重置申请不存在" });
@@ -316,7 +349,15 @@ router.patch("/password-resets/:id", async (req, res) => {
     }
 
     const db = getDb();
-    const requestInfo = await db.prepare("SELECT * FROM password_reset_requests WHERE id=?").get(req.params.id);
+    let requestId;
+
+    try {
+        requestId = ensurePositiveInt(req.params.id, "工单ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "工单ID不合法") });
+    }
+
+    const requestInfo = await db.prepare("SELECT * FROM password_reset_requests WHERE id=?").get(requestId);
     if (!requestInfo) {
         return res.json({ code: 404, message: "重置申请不存在" });
     }

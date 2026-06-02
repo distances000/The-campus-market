@@ -9,13 +9,20 @@ const {
     pushConversationRefresh,
     pushUnreadSummary
 } = require("../utils/realtime");
+const { getUserFacingMessage } = require("../utils/error");
+const {
+    ensureOptionalEnum,
+    ensureOptionalText,
+    ensurePagination,
+    ensurePositiveInt,
+    ensureRequiredText
+} = require("../utils/validate");
 
 const router = express.Router();
 
-function parsePositiveInt(value, fallback) {
-    const parsed = parseInt(value, 10);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
+const ALLOWED_NOTIFICATION_KINDS = ["interaction", "system"];
+const MAX_MESSAGE_CONTENT_LENGTH = 500;
+const MAX_SEARCH_KEYWORD_LENGTH = 30;
 
 function safeJsonParse(value, fallback) {
     try {
@@ -148,13 +155,16 @@ async function shouldShowConversation(db, userId, peerId, lastTime) {
 }
 
 router.post("/", authMiddleware, async (req, res) => {
-    const { receiver_id, content } = req.body;
-    const receiverId = Number(receiver_id);
-    const normalizedContent = typeof content === "string" ? content.trim() : "";
+    let receiverId;
+    let normalizedContent;
 
-    if (!receiverId || !normalizedContent) {
-        return res.json({ code: 400, message: "请填写完整的消息内容" });
+    try {
+        receiverId = ensurePositiveInt(req.body.receiver_id, "接收方ID");
+        normalizedContent = ensureRequiredText(req.body.content, "消息内容", { maxLength: MAX_MESSAGE_CONTENT_LENGTH });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "消息内容不合法") });
     }
+
     if (receiverId === req.user.id) {
         return res.json({ code: 400, message: "不能给自己发消息" });
     }
@@ -162,6 +172,15 @@ router.post("/", authMiddleware, async (req, res) => {
     const db = getDb();
     if (!await db.prepare("SELECT id FROM users WHERE id=?").get(receiverId)) {
         return res.json({ code: 404, message: "用户不存在" });
+    }
+    const duplicatedMessage = await db.prepare(`
+        SELECT id
+        FROM messages
+        WHERE sender_id=? AND receiver_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 SECOND)
+        LIMIT 1
+    `).get(req.user.id, receiverId, normalizedContent);
+    if (duplicatedMessage) {
+        return res.json({ code: 400, message: "请勿重复发送相同消息" });
     }
 
     const result = await db.prepare(`
@@ -175,10 +194,17 @@ router.post("/", authMiddleware, async (req, res) => {
 
 router.get("/conversation/:userId", authMiddleware, async (req, res) => {
     const db = getDb();
-    const peerUserId = Number(req.params.userId);
-    const page = parsePositiveInt(req.query.page, 1);
-    const pageSize = parsePositiveInt(req.query.page_size, 50);
-    const offset = (page - 1) * pageSize;
+    let peerUserId;
+    let pagination;
+
+    try {
+        peerUserId = ensurePositiveInt(req.params.userId, "用户ID");
+        pagination = ensurePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "会话查询参数不合法") });
+    }
+
+    const { page, pageSize, offset } = pagination;
 
     const list = await db.prepare(`
         SELECT
@@ -202,7 +228,14 @@ router.get("/conversation/:userId", authMiddleware, async (req, res) => {
 
 router.post("/conversation/:userId/read", authMiddleware, async (req, res) => {
     const db = getDb();
-    const peerUserId = Number(req.params.userId);
+    let peerUserId;
+
+    try {
+        peerUserId = ensurePositiveInt(req.params.userId, "用户ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "用户ID不合法") });
+    }
+
     const result = await markConversationAsRead(db, req.user.id, peerUserId);
     return res.json({
         code: 200,
@@ -261,10 +294,16 @@ router.get("/conversations", authMiddleware, async (req, res) => {
 
 router.delete("/conversations/:userId", authMiddleware, async (req, res) => {
     const db = getDb();
-    const peerUserId = Number(req.params.userId);
+    let peerUserId;
 
-    if (!peerUserId || peerUserId === req.user.id) {
-        return res.json({ code: 400, message: "删除最近会话请求无效" });
+    try {
+        peerUserId = ensurePositiveInt(req.params.userId, "用户ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "用户ID不合法") });
+    }
+
+    if (peerUserId === req.user.id) {
+        return res.json({ code: 400, message: "不能删除与自己的会话" });
     }
 
     const hasConversation = await db.prepare(`
@@ -337,10 +376,16 @@ router.get("/friends", authMiddleware, async (req, res) => {
 
 router.post("/friends/:friendId", authMiddleware, async (req, res) => {
     const db = getDb();
-    const friendId = Number(req.params.friendId);
+    let friendId;
 
-    if (!friendId || friendId === req.user.id) {
-        return res.json({ code: 400, message: "好友添加无效" });
+    try {
+        friendId = ensurePositiveInt(req.params.friendId, "好友ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "好友ID不合法") });
+    }
+
+    if (friendId === req.user.id) {
+        return res.json({ code: 400, message: "不能添加自己为好友" });
     }
 
     const target = await db.prepare("SELECT id FROM users WHERE id=?").get(friendId);
@@ -381,10 +426,16 @@ router.post("/friends/:friendId", authMiddleware, async (req, res) => {
 
 router.delete("/friends/:friendId", authMiddleware, async (req, res) => {
     const db = getDb();
-    const friendId = Number(req.params.friendId);
+    let friendId;
 
-    if (!friendId || friendId === req.user.id) {
-        return res.json({ code: 400, message: "删除好友请求无效" });
+    try {
+        friendId = ensurePositiveInt(req.params.friendId, "好友ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "好友ID不合法") });
+    }
+
+    if (friendId === req.user.id) {
+        return res.json({ code: 400, message: "不能删除自己" });
     }
 
     const exists = await db.prepare("SELECT id FROM friends WHERE user_id=? AND friend_id=?").get(req.user.id, friendId);
@@ -407,14 +458,17 @@ router.delete("/friends/:friendId", authMiddleware, async (req, res) => {
 
 router.get("/notifications", authMiddleware, async (req, res) => {
     const db = getDb();
-    const kind = typeof req.query.kind === "string" ? req.query.kind : "interaction";
-    if (!["interaction", "system"].includes(kind)) {
-        return res.json({ code: 400, message: "通知类型无效" });
+    let kind;
+    let pagination;
+
+    try {
+        kind = ensureOptionalEnum(req.query.kind, ALLOWED_NOTIFICATION_KINDS, "通知类型", { defaultValue: "interaction" });
+        pagination = ensurePagination(req.query, { defaultPageSize: 20, maxPageSize: 50 });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "通知查询参数不合法") });
     }
 
-    const page = parsePositiveInt(req.query.page, 1);
-    const pageSize = parsePositiveInt(req.query.page_size, 20);
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = pagination;
     const total = (await db.prepare(`
         SELECT COUNT(*) AS count
         FROM notifications
@@ -457,11 +511,24 @@ router.get("/notifications", authMiddleware, async (req, res) => {
 router.post("/notifications/read", authMiddleware, async (req, res) => {
     const db = getDb();
     const { id, kind } = req.body || {};
+    let notificationId = null;
+    let normalizedKind = "";
 
-    if (id) {
-        await db.prepare("UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?").run(id, req.user.id);
-    } else if (kind) {
-        await db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=? AND kind=?").run(req.user.id, kind);
+    try {
+        if (id !== undefined && id !== null && String(id).trim() !== "") {
+            notificationId = ensurePositiveInt(id, "通知ID");
+        }
+        if (kind !== undefined && kind !== null && String(kind).trim() !== "") {
+            normalizedKind = ensureOptionalEnum(kind, ALLOWED_NOTIFICATION_KINDS, "通知类型", { defaultValue: "" });
+        }
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "通知参数不合法") });
+    }
+
+    if (notificationId) {
+        await db.prepare("UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?").run(notificationId, req.user.id);
+    } else if (normalizedKind) {
+        await db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=? AND kind=?").run(req.user.id, normalizedKind);
     } else {
         await db.prepare("UPDATE notifications SET is_read=1 WHERE user_id=?").run(req.user.id);
     }
@@ -472,7 +539,14 @@ router.post("/notifications/read", authMiddleware, async (req, res) => {
 
 router.get("/users/search", authMiddleware, async (req, res) => {
     const db = getDb();
-    const keyword = typeof req.query.keyword === "string" ? req.query.keyword.trim() : "";
+    let keyword = "";
+
+    try {
+        keyword = ensureOptionalText(req.query.keyword, "搜索关键词", { maxLength: MAX_SEARCH_KEYWORD_LENGTH });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "搜索关键词不合法") });
+    }
+
     if (!keyword) {
         return res.json({ code: 200, data: [] });
     }
@@ -503,7 +577,15 @@ router.get("/users/search", authMiddleware, async (req, res) => {
 
 router.get("/users/:id", authMiddleware, async (req, res) => {
     const db = getDb();
-    const user = await buildUserDetail(db, req.user.id, Number(req.params.id));
+    let targetUserId;
+
+    try {
+        targetUserId = ensurePositiveInt(req.params.id, "用户ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "用户ID不合法") });
+    }
+
+    const user = await buildUserDetail(db, req.user.id, targetUserId);
     if (!user) {
         return res.json({ code: 404, message: "用户不存在" });
     }

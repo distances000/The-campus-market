@@ -1,6 +1,11 @@
 const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
+const { getUserFacingMessage } = require("../utils/error");
+const {
+    ensureOptionalText,
+    ensurePositiveInt
+} = require("../utils/validate");
 
 const router = express.Router();
 
@@ -48,23 +53,24 @@ async function getTargetSnapshot(db, targetType, targetId) {
 }
 
 router.post("/", authMiddleware, async (req, res) => {
-    const { target_type, target_id, reason, description = "" } = req.body;
+    const { target_type, reason } = req.body;
     const normalizedType = typeof target_type === "string" ? target_type.trim() : "";
     const normalizedReason = typeof reason === "string" ? reason.trim() : "";
-    const normalizedDescription = typeof description === "string" ? description.trim() : "";
-    const targetId = Number(target_id);
+    let normalizedDescription = "";
+    let targetId;
 
     if (!ALLOWED_TARGET_TYPES.includes(normalizedType)) {
         return res.json({ code: 400, message: "举报对象类型不合法" });
     }
-    if (!Number.isInteger(targetId) || targetId <= 0) {
-        return res.json({ code: 400, message: "举报对象不存在" });
-    }
     if (!ALLOWED_REASONS.includes(normalizedReason)) {
         return res.json({ code: 400, message: "举报原因不合法" });
     }
-    if (normalizedDescription.length > 500) {
-        return res.json({ code: 400, message: "补充说明不能超过 500 字" });
+
+    try {
+        targetId = ensurePositiveInt(req.body.target_id, "举报对象ID");
+        normalizedDescription = ensureOptionalText(req.body.description, "补充说明", { maxLength: 500 });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "举报参数不合法") });
     }
 
     const db = getDb();
@@ -132,6 +138,7 @@ router.post("/", authMiddleware, async (req, res) => {
 
 router.get("/my/list", authMiddleware, async (req, res) => {
     const db = getDb();
+    const limit = 50;
     const list = await db.prepare(`
         SELECT
             id,
@@ -149,8 +156,8 @@ router.get("/my/list", authMiddleware, async (req, res) => {
         FROM reports
         WHERE reporter_id=?
         ORDER BY created_at DESC
-        LIMIT 50
-    `).all(req.user.id);
+        LIMIT ?
+    `).all(req.user.id, limit);
 
     return res.json({ code: 200, data: { list } });
 });

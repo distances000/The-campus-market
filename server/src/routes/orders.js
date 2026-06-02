@@ -2,8 +2,18 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
+const { getUserFacingMessage } = require("../utils/error");
+const {
+    ensureOptionalEnum,
+    ensureOptionalText,
+    ensurePositiveInt
+} = require("../utils/validate");
 
 const router = express.Router();
+
+const ALLOWED_ORDER_ROLES = ["all", "buyer", "seller"];
+const ALLOWED_ORDER_STATUSES = ["pending_completion", "completed", "cancelled"];
+const MAX_REVIEW_CONTENT_LENGTH = 300;
 
 async function getUserCredit(db, userId) {
     const stats = await db.prepare(`
@@ -25,13 +35,20 @@ async function getOrderReviewState(db, orderId) {
 }
 
 router.post("/", authMiddleware, async (req, res) => {
-    const { product_id } = req.body;
+    let productId;
+
+    try {
+        productId = ensurePositiveInt(req.body.product_id, "商品ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "商品ID不合法") });
+    }
+
     const db = getDb();
-    const product = await db.prepare("SELECT * FROM products WHERE id=?").get(product_id);
+    const product = await db.prepare("SELECT * FROM products WHERE id=?").get(productId);
     if (!product) return res.json({ code: 404, message: "商品不存在" });
     if (product.seller_id === req.user.id) return res.json({ code: 400, message: "不能购买自己发布的商品" });
     if (product.status !== "active") return res.json({ code: 400, message: "该商品当前不可下单" });
-    const activeOrder = await db.prepare("SELECT id FROM orders WHERE product_id=? AND status IN ('pending_completion','completed')").get(product_id);
+    const activeOrder = await db.prepare("SELECT id FROM orders WHERE product_id=? AND status IN ('pending_completion','completed')").get(productId);
     if (activeOrder) return res.json({ code: 400, message: "该商品已有订单" });
 
     const orderId = await db.transaction(async (tx) => {
@@ -78,11 +95,20 @@ router.get("/my/list", authMiddleware, async (req, res) => {
     const db = getDb();
     const conds = [];
     const params = [];
+    let normalizedRole;
+    let normalizedStatus;
 
-    if (role === "buyer") {
+    try {
+        normalizedRole = ensureOptionalEnum(role, ALLOWED_ORDER_ROLES, "订单角色", { defaultValue: "all" });
+        normalizedStatus = ensureOptionalEnum(status, ALLOWED_ORDER_STATUSES, "订单状态", { defaultValue: "" });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "订单查询参数不合法") });
+    }
+
+    if (normalizedRole === "buyer") {
         conds.push("o.buyer_id=?");
         params.push(req.user.id);
-    } else if (role === "seller") {
+    } else if (normalizedRole === "seller") {
         conds.push("o.seller_id=?");
         params.push(req.user.id);
     } else {
@@ -90,9 +116,9 @@ router.get("/my/list", authMiddleware, async (req, res) => {
         params.push(req.user.id, req.user.id);
     }
 
-    if (status) {
+    if (normalizedStatus) {
         conds.push("o.status=?");
-        params.push(status);
+        params.push(normalizedStatus);
     }
 
     const where = "WHERE " + conds.join(" AND ");
@@ -129,7 +155,15 @@ router.get("/my/list", authMiddleware, async (req, res) => {
 
 router.post("/:id/complete", authMiddleware, async (req, res) => {
     const db = getDb();
-    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    let orderId;
+
+    try {
+        orderId = ensurePositiveInt(req.params.id, "订单ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "订单ID不合法") });
+    }
+
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id) return res.json({ code: 403, message: "只有买家可以确认完成" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可完成" });
@@ -154,7 +188,15 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
 
 router.post("/:id/cancel", authMiddleware, async (req, res) => {
     const db = getDb();
-    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    let orderId;
+
+    try {
+        orderId = ensurePositiveInt(req.params.id, "订单ID");
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "订单ID不合法") });
+    }
+
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权取消该订单" });
     if (order.status !== "pending_completion") return res.json({ code: 400, message: "当前订单状态不可取消" });
@@ -182,12 +224,21 @@ router.post("/:id/cancel", authMiddleware, async (req, res) => {
 });
 
 router.post("/:id/review", authMiddleware, async (req, res) => {
-    const { rating, content = "" } = req.body;
-    const score = Number(rating);
+    let orderId;
+    let normalizedContent;
+
+    try {
+        orderId = ensurePositiveInt(req.params.id, "订单ID");
+        normalizedContent = ensureOptionalText(req.body.content, "评价内容", { maxLength: MAX_REVIEW_CONTENT_LENGTH });
+    } catch (error) {
+        return res.json({ code: 400, message: getUserFacingMessage(error, "评价内容不合法") });
+    }
+
+    const score = Number(req.body.rating);
     if (!Number.isInteger(score) || score < 1 || score > 5) return res.json({ code: 400, message: "评分范围必须是 1-5" });
 
     const db = getDb();
-    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
+    const order = await db.prepare("SELECT * FROM orders WHERE id=?").get(orderId);
     if (!order) return res.json({ code: 404, message: "订单不存在" });
     if (order.status !== "completed") return res.json({ code: 400, message: "只有已完成订单才能评价" });
     if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) return res.json({ code: 403, message: "无权评价该订单" });
@@ -198,7 +249,7 @@ router.post("/:id/review", authMiddleware, async (req, res) => {
     const result = await db.prepare(`
         INSERT INTO reviews (order_id,product_id,reviewer_id,reviewee_id,rating,content)
         VALUES (?,?,?,?,?,?)
-    `).run(order.id, order.product_id, req.user.id, revieweeId, score, content.trim());
+    `).run(order.id, order.product_id, req.user.id, revieweeId, score, normalizedContent);
 
     const review = await db.prepare(`
         SELECT
