@@ -3,15 +3,7 @@
     "name": "the-campus-market",
     "type": "module",
     "scripts": {
-        "build:client": "npm --prefix client run build",
-        "doctor:env": "npm --prefix server run doctor-env",
-    "doctor:db": "npm --prefix server run doctor-db",
-    "start:server": "npm --prefix server run start",
-    "dev:client": "npm --prefix client run dev",
-    "dev:server": "npm --prefix server run dev",
-    "smoke:core": "npm --prefix server run smoke-core-flow:self",
-    "smoke:concurrency": "npm --prefix server run concurrency-check:self",
-        "verify:local": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke:core && npm run smoke:concurrency && npm run smoke:pages",
-        "smoke:pages": "npm --prefix server run smoke-page-access"
-  }
+        "dev:client": "npm --prefix client run dev",
+        "dev:server": "npm --prefix server run dev"
+    }
 }
