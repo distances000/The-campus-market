@@ -118,7 +118,7 @@ router.post("/:id/like", authMiddleware, async (req, res) => {
     const like = await db.prepare("SELECT id FROM likes WHERE user_id=? AND post_id=?").get(req.user.id, postId);
     if (like) {
         await db.prepare("DELETE FROM likes WHERE user_id=? AND post_id=?").run(req.user.id, postId);
-        await db.prepare("UPDATE posts SET likes_count=likes_count-1 WHERE id=?").run(postId);
+        await db.prepare("UPDATE posts SET likes_count=GREATEST(likes_count-1, 0) WHERE id=?").run(postId);
         res.json({ code: 200, message: "已取消点赞", data: { liked: false } });
     } else {
         try {
@@ -156,23 +156,42 @@ router.post("/:id/comment", authMiddleware, async (req, res) => {
     }
 
     const db = getDb();
-    const post = await db.prepare("SELECT id, author_id, content FROM posts WHERE id=?").get(postId);
-    if (!post)
-        return res.json({ code: 404, message: "帖子不存在或已删除" });
-    const duplicateComment = await db.prepare(`
-        SELECT id
-        FROM comments
-        WHERE user_id=? AND post_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
-        LIMIT 1
-    `).get(req.user.id, postId, normalizedContent);
-    if (duplicateComment) {
-        return res.json({ code: 400, message: "请勿重复提交相同评论" });
+    let post;
+    let comment;
+
+    try {
+        await db.transaction(async (tx) => {
+            post = await tx.prepare("SELECT id, author_id, content FROM posts WHERE id=? FOR UPDATE").get(postId);
+            if (!post) {
+                throw new Error("POST_NOT_FOUND");
+            }
+
+            const duplicateComment = await tx.prepare(`
+                SELECT id
+                FROM comments
+                WHERE user_id=? AND post_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
+                LIMIT 1
+            `).get(req.user.id, postId, normalizedContent);
+            if (duplicateComment) {
+                throw new Error("DUPLICATE_COMMENT");
+            }
+
+            const r = await tx.prepare("INSERT INTO comments (user_id,post_id,content) VALUES (?,?,?)")
+                .run(req.user.id, postId, normalizedContent);
+            await tx.prepare("UPDATE posts SET comments_count=comments_count+1 WHERE id=?").run(postId);
+            comment = await tx.prepare("SELECT c.*,u.nickname AS user_name,u.avatar_url AS user_avatar FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?")
+                .get(r.lastInsertRowid);
+        });
+    } catch (error) {
+        if (error?.message === "POST_NOT_FOUND") {
+            return res.json({ code: 404, message: "帖子不存在或已删除" });
+        }
+        if (error?.message === "DUPLICATE_COMMENT") {
+            return res.json({ code: 400, message: "请勿重复提交相同评论" });
+        }
+        throw error;
     }
-    const r = await db.prepare("INSERT INTO comments (user_id,post_id,content) VALUES (?,?,?)")
-        .run(req.user.id, postId, normalizedContent);
-    await db.prepare("UPDATE posts SET comments_count=comments_count+1 WHERE id=?").run(postId);
-    const comment = await db.prepare("SELECT c.*,u.nickname AS user_name,u.avatar_url AS user_avatar FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?")
-        .get(r.lastInsertRowid);
+
     await createNotification(db, {
         userId: post.author_id,
         actorId: req.user.id,

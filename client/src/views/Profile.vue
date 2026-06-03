@@ -270,6 +270,7 @@ const displayName = computed(() => userStore.user?.nickname || userStore.user?.u
 const profileInitial = computed(() => (displayName.value || "U")[0]);
 const hasBackendAccess = computed(() => !!(userStore.user?.is_admin || userStore.user?.can_moderate));
 const canModerate = computed(() => !!(userStore.user?.is_admin || userStore.user?.can_moderate));
+const needsPasswordChange = computed(() => !!userStore.user?.must_change_password);
 const defImg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect fill='%23f0f0f0' width='80' height='80'/%3E%3C/svg%3E";
 
 function getImg(product) {
@@ -437,13 +438,13 @@ onMounted(() => {
     syncEditForm();
     fetchMyProducts();
     fetchMyFavorites();
-    if (route.query.changePassword === "1") {
+    if (route.query.changePassword === "1" || needsPasswordChange.value) {
         showPasswordDialog.value = true;
     }
 });
 
-watch(() => route.query.changePassword, (value) => {
-    if (value === "1") {
+watch(() => [route.query.changePassword, needsPasswordChange.value], ([changePassword, mustChangePassword]) => {
+    if (changePassword === "1" || mustChangePassword) {
         showPasswordDialog.value = true;
     }
 });

@@ -183,8 +183,6 @@ async function startRealtimeEventPolling() {
     }
 
     pollerStarted = true;
-    const db = getDb();
-    lastEventId = await fetchLatestRealtimeEventId(db);
     pollerTimer = setInterval(() => {
         pollRealtimeEvents().catch((error) => {
             logError("realtime.poll_tick_failed", "实时事件轮询周期执行失败", error, {

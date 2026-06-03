@@ -2,7 +2,7 @@ const express = require("express");
 const { getDb } = require("../config/db");
 const { authMiddleware } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
-const { createAppError, getUserFacingMessage } = require("../utils/error");
+const { createAppError, getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const { buildRequestMeta, logInfo, logWarn } = require("../utils/logger");
 const {
     ensureOptionalEnum,
@@ -336,10 +336,18 @@ router.post("/:id/review", authMiddleware, async (req, res) => {
     if (exists) return res.json({ code: 400, message: "你已经评价过该订单" });
 
     const revieweeId = order.buyer_id === req.user.id ? order.seller_id : order.buyer_id;
-    const result = await db.prepare(`
-        INSERT INTO reviews (order_id,product_id,reviewer_id,reviewee_id,rating,content)
-        VALUES (?,?,?,?,?,?)
-    `).run(order.id, order.product_id, req.user.id, revieweeId, score, normalizedContent);
+    let result;
+    try {
+        result = await db.prepare(`
+            INSERT INTO reviews (order_id,product_id,reviewer_id,reviewee_id,rating,content)
+            VALUES (?,?,?,?,?,?)
+        `).run(order.id, order.product_id, req.user.id, revieweeId, score, normalizedContent);
+    } catch (error) {
+        if (isDuplicateEntryError(error)) {
+            return res.json({ code: 400, message: "你已经评价过该订单" });
+        }
+        throw error;
+    }
 
     const review = await db.prepare(`
         SELECT

@@ -12,12 +12,13 @@ const router = express.Router();
 const ALLOWED_TARGET_TYPES = ["product", "post"];
 const ALLOWED_REASONS = ["spam", "fraud", "illegal", "abuse", "misleading", "other"];
 
-async function getTargetSnapshot(db, targetType, targetId) {
+async function getTargetSnapshot(db, targetType, targetId, lock = false) {
     if (targetType === "product") {
         const product = await db.prepare(`
             SELECT id, seller_id AS owner_id, title, description, status
             FROM products
             WHERE id=?
+            ${lock ? "FOR UPDATE" : ""}
         `).get(targetId);
 
         if (!product) {
@@ -36,6 +37,7 @@ async function getTargetSnapshot(db, targetType, targetId) {
             SELECT id, author_id AS owner_id, content
             FROM posts
             WHERE id=?
+            ${lock ? "FOR UPDATE" : ""}
         `).get(targetId);
 
         if (!post) {
@@ -74,60 +76,78 @@ router.post("/", authMiddleware, async (req, res) => {
     }
 
     const db = getDb();
-    const snapshot = await getTargetSnapshot(db, normalizedType, targetId);
-    if (!snapshot) {
-        return res.json({ code: 404, message: "举报对象不存在或已删除" });
+    let report;
+
+    try {
+        await db.transaction(async (tx) => {
+            const snapshot = await getTargetSnapshot(tx, normalizedType, targetId, true);
+            if (!snapshot) {
+                throw new Error("REPORT_TARGET_NOT_FOUND");
+            }
+            if (snapshot.target_owner_id === req.user.id) {
+                throw new Error("REPORT_SELF_TARGET");
+            }
+
+            const existed = await tx.prepare(`
+                SELECT id
+                FROM reports
+                WHERE reporter_id=?
+                  AND target_type=?
+                  AND target_id=?
+                  AND status IN ('pending', 'reviewing')
+                LIMIT 1
+            `).get(req.user.id, normalizedType, targetId);
+
+            if (existed) {
+                throw new Error("REPORT_DUPLICATE");
+            }
+
+            const result = await tx.prepare(`
+                INSERT INTO reports (
+                    reporter_id,
+                    target_type,
+                    target_id,
+                    target_owner_id,
+                    snapshot_title,
+                    snapshot_excerpt,
+                    reason,
+                    description,
+                    resolution_note
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                req.user.id,
+                normalizedType,
+                targetId,
+                snapshot.target_owner_id || null,
+                snapshot.snapshot_title,
+                snapshot.snapshot_excerpt,
+                normalizedReason,
+                normalizedDescription,
+                ""
+            );
+
+            report = await tx.prepare(`
+                SELECT
+                    r.*,
+                    u.nickname AS reporter_name
+                FROM reports r
+                JOIN users u ON u.id=r.reporter_id
+                WHERE r.id=?
+            `).get(result.lastInsertRowid);
+        });
+    } catch (error) {
+        if (error?.message === "REPORT_TARGET_NOT_FOUND") {
+            return res.json({ code: 404, message: "举报对象不存在或已删除" });
+        }
+        if (error?.message === "REPORT_SELF_TARGET") {
+            return res.json({ code: 400, message: "不能举报自己发布的内容" });
+        }
+        if (error?.message === "REPORT_DUPLICATE") {
+            return res.json({ code: 400, message: "你已经举报过该内容，等待管理员处理即可" });
+        }
+        throw error;
     }
-    if (snapshot.target_owner_id === req.user.id) {
-        return res.json({ code: 400, message: "不能举报自己发布的内容" });
-    }
-
-    const existed = await db.prepare(`
-        SELECT id
-        FROM reports
-        WHERE reporter_id=?
-          AND target_type=?
-          AND target_id=?
-          AND status IN ('pending', 'reviewing')
-    `).get(req.user.id, normalizedType, targetId);
-
-    if (existed) {
-        return res.json({ code: 400, message: "你已经举报过该内容，等待管理员处理即可" });
-    }
-
-    const result = await db.prepare(`
-        INSERT INTO reports (
-            reporter_id,
-            target_type,
-            target_id,
-            target_owner_id,
-            snapshot_title,
-            snapshot_excerpt,
-            reason,
-            description,
-            resolution_note
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-        req.user.id,
-        normalizedType,
-        targetId,
-        snapshot.target_owner_id || null,
-        snapshot.snapshot_title,
-        snapshot.snapshot_excerpt,
-        normalizedReason,
-        normalizedDescription,
-        ""
-    );
-
-    const report = await db.prepare(`
-        SELECT
-            r.*,
-            u.nickname AS reporter_name
-        FROM reports r
-        JOIN users u ON u.id=r.reporter_id
-        WHERE r.id=?
-    `).get(result.lastInsertRowid);
 
     return res.json({
         code: 200,

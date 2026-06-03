@@ -15,6 +15,8 @@ const {
 } = require("../utils/validate");
 const router = express.Router();
 
+const ALLOWED_PRODUCT_CATEGORIES = ["digital", "books", "life", "clothing", "sports", "beauty", "other"];
+const ALLOWED_PRODUCT_CONDITIONS = ["brand_new", "like_new", "used", "old"];
 const ALLOWED_SORTS = ["latest", "price_asc", "price_desc", "hot"];
 const ALLOWED_PRODUCT_STATUSES = ["active", "inactive", "sold"];
 const MAX_PRODUCT_TITLE_LENGTH = 80;
@@ -53,6 +55,8 @@ router.post("/", authMiddleware, async (req, res) => {
     let normalizedCampus;
     let normalizedPrice;
     let normalizedOriginalPrice = null;
+    let normalizedCategory;
+    let normalizedCondition;
 
     try {
         normalizedTitle = ensureRequiredText(title, "商品标题", { maxLength: MAX_PRODUCT_TITLE_LENGTH });
@@ -62,6 +66,8 @@ router.post("/", authMiddleware, async (req, res) => {
         if (original_price !== undefined && original_price !== null && String(original_price).trim() !== "") {
             normalizedOriginalPrice = ensurePrice(original_price, "原价");
         }
+        normalizedCategory = ensureOptionalEnum(category, ALLOWED_PRODUCT_CATEGORIES, "商品分类", { defaultValue: "other" });
+        normalizedCondition = ensureOptionalEnum(condition, ALLOWED_PRODUCT_CONDITIONS, "成色", { defaultValue: "used" });
     } catch (error) {
         return res.json({ code: 400, message: getUserFacingMessage(error, "商品信息填写不完整") });
     }
@@ -83,7 +89,7 @@ router.post("/", authMiddleware, async (req, res) => {
         return res.json({ code: 400, message: "请勿重复提交相同商品" });
     }
     const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
-        .run(req.user.id, normalizedTitle, normalizedDescription, normalizedPrice, normalizedOriginalPrice, category || "other", condition || "used", normalizedCampus, JSON.stringify(images));
+        .run(req.user.id, normalizedTitle, normalizedDescription, normalizedPrice, normalizedOriginalPrice, normalizedCategory, normalizedCondition, normalizedCampus, JSON.stringify(images));
     const p = await db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
     p.images = JSON.parse(p.images_json); delete p.images_json;
@@ -99,6 +105,9 @@ router.get("/", optionalAuth, async (req, res) => {
     try {
         pagination = ensurePagination({ page, page_size }, { defaultPageSize: 20, maxPageSize: 50 });
         ensureOptionalEnum(sort, ALLOWED_SORTS, "排序方式", { defaultValue: "latest" });
+        if (category && category !== "all") {
+            ensureOptionalEnum(category, ALLOWED_PRODUCT_CATEGORIES, "商品分类", { defaultValue: "all" });
+        }
     } catch (error) {
         return res.json({ code: 400, message: getUserFacingMessage(error, "商品列表查询参数不合法") });
     }
@@ -270,8 +279,14 @@ router.put("/:id", authMiddleware, async (req, res) => {
     } catch (error) {
         return res.json({ code: 400, message: getUserFacingMessage(error, "商品信息填写不合法") });
     }
-    if (category !== undefined) { fields.push("category=?"); vals.push(category); }
-    if (condition !== undefined) { fields.push("`condition`=?"); vals.push(condition); }
+    if (category !== undefined) {
+        fields.push("category=?");
+        vals.push(ensureOptionalEnum(category, ALLOWED_PRODUCT_CATEGORIES, "商品分类", { defaultValue: "other" }));
+    }
+    if (condition !== undefined) {
+        fields.push("`condition`=?");
+        vals.push(ensureOptionalEnum(condition, ALLOWED_PRODUCT_CONDITIONS, "成色", { defaultValue: "used" }));
+    }
     if (images_json !== undefined) {
         try {
             nextImages = normalizeImageList(images_json);

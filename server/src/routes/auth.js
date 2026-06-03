@@ -7,7 +7,7 @@ const {
     getVerificationCodeHash,
     sendVerificationEmail
 } = require("../services/email");
-const { getUserFacingMessage, logServerError } = require("../utils/error");
+const { getUserFacingMessage, isDuplicateEntryError, logServerError } = require("../utils/error");
 const { buildRequestMeta, logError, logInfo, logWarn } = require("../utils/logger");
 
 const router = express.Router();
@@ -188,10 +188,19 @@ router.post("/register", async (req, res) => {
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = await db.prepare(`
-        INSERT INTO users (username, password_hash, nickname, email)
-        VALUES (?, ?, ?, ?)
-    `).run(username, passwordHash, nickname, email || null);
+    let result;
+    try {
+        result = await db.prepare(`
+            INSERT INTO users (username, password_hash, nickname, email)
+            VALUES (?, ?, ?, ?)
+        `).run(username, passwordHash, nickname, email || null);
+    } catch (error) {
+        if (isDuplicateEntryError(error)) {
+            logWarn("auth.register_rejected", "注册被拒绝：用户名或邮箱已存在", buildRequestMeta(req, { username, email }));
+            return res.json({ code: 400, message: "用户名或邮箱已存在" });
+        }
+        throw error;
+    }
 
     const user = await getPublicUserById(db, result.lastInsertRowid);
     logInfo("auth.register_succeeded", "用户注册成功", buildRequestMeta(req, {

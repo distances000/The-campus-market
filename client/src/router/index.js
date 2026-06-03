@@ -56,6 +56,26 @@ r.beforeEach(async (to, from, next) => {
         return next({ path: "/login", query: { redirect: to.fullPath } });
     }
 
+    if (userStore.user?.must_change_password && to.path !== "/profile") {
+        return next({
+            path: "/profile",
+            query: {
+                redirect: to.fullPath,
+                changePassword: "1"
+            }
+        });
+    }
+
+    if (userStore.user?.must_change_password && to.path === "/profile" && to.query.changePassword !== "1") {
+        return next({
+            path: "/profile",
+            query: {
+                ...to.query,
+                changePassword: "1"
+            }
+        });
+    }
+
     if (to.meta.requiresAdmin && !userStore.user?.is_admin) {
         return next({ path: "/profile" });
     }

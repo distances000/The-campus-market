@@ -1,10 +1,12 @@
-const http = require("http");
-const mysql = require("mysql2/promise");
+﻿const mysql = require("mysql2/promise");
 const { getDb, closeDb } = require("../src/config/db");
 const { cleanupOrphanUploads } = require("../src/utils/upload");
-
-const BASE_URL = "http://127.0.0.1:3000";
-const DATABASE_URL = process.env.DATABASE_URL || "mysql://root:czh814814@127.0.0.1:3306/campus_market";
+const {
+    buildJsonRequest,
+    getApiBase,
+    getDatabaseUrl,
+    waitForApiReady
+} = require("./shared");
 
 const MESSAGE_SENDER_COUNT = 5;
 const MESSAGE_PER_SENDER = 4;
@@ -81,52 +83,14 @@ async function runBatch(name, taskFactories) {
 }
 
 function requestJson(method, path, body, token) {
-    return new Promise((resolve, reject) => {
-        const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
-        const req = http.request({
-            hostname: "127.0.0.1",
-            port: 3000,
-            path,
-            method,
-            headers: {
-                ...(payload ? {
-                    "Content-Type": "application/json",
-                    "Content-Length": payload.length
-                } : {}),
-                ...(token ? { Authorization: `Bearer ${token}` } : {})
-            }
-        }, (res) => {
-            let raw = "";
-            res.setEncoding("utf8");
-            res.on("data", (chunk) => {
-                raw += chunk;
-            });
-            res.on("end", () => {
-                let parsed = {};
-                try {
-                    parsed = raw ? JSON.parse(raw) : {};
-                } catch (error) {
-                    reject(new Error(`JSON 解析失败: ${method} ${path} => ${raw}`));
-                    return;
-                }
-                resolve({
-                    status: res.statusCode,
-                    data: parsed
-                });
-            });
-        });
-        req.on("error", reject);
-        if (payload) {
-            req.write(payload);
-        }
-        req.end();
-    });
+    return buildJsonRequest(method, path, body, token);
 }
 
 async function requestMultipart(path, token, fileName, mimeType, buffer) {
     const form = new FormData();
     form.append("file", new Blob([buffer], { type: mimeType }), fileName);
-    const response = await fetch(`${BASE_URL}${path}`, {
+    const { hostname, port } = getApiBase();
+    const response = await fetch(`http://${hostname}:${port}${path}`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: form
@@ -138,8 +102,9 @@ async function requestMultipart(path, token, fileName, mimeType, buffer) {
     };
 }
 
-async function requestText(url) {
-    const response = await fetch(url);
+async function requestText(path) {
+    const { hostname, port } = getApiBase();
+    const response = await fetch(`http://${hostname}:${port}${path}`);
     return {
         status: response.status,
         text: await response.text()
@@ -147,7 +112,7 @@ async function requestText(url) {
 }
 
 async function createDbConnection() {
-    return mysql.createConnection(DATABASE_URL);
+    return mysql.createConnection(getDatabaseUrl());
 }
 
 async function cleanupUsers(usernames) {
@@ -190,7 +155,7 @@ function buildUsers() {
     const users = {
         seller: {
             username: `bench_seller_${suffix}`,
-            nickname: `卖家${suffix}`,
+            nickname: `鍗栧${suffix}`,
             email: `bench_seller_${suffix}@example.com`,
             password: "Seller1234!"
         }
@@ -199,7 +164,7 @@ function buildUsers() {
     for (let index = 1; index <= FAVORITE_ACTOR_COUNT; index += 1) {
         users[`actor${index}`] = {
             username: `bench_actor_${suffix}_${index}`,
-            nickname: `用户${suffix}${index}`,
+            nickname: `鐢ㄦ埛${suffix}${index}`,
             email: `bench_actor_${suffix}_${index}@example.com`,
             password: "Actor1234!"
         };
@@ -210,7 +175,7 @@ function buildUsers() {
 
 async function registerUser(user) {
     const result = await requestJson("POST", "/api/auth/register", user);
-    assert(result.data.code === 200, `注册失败: ${user.username} => ${JSON.stringify(result.data)}`);
+    assert(result.data.code === 200, `娉ㄥ唽澶辫触: ${user.username} => ${JSON.stringify(result.data)}`);
 }
 
 async function loginUser(user) {
@@ -218,13 +183,13 @@ async function loginUser(user) {
         username: user.username,
         password: user.password
     });
-    assert(result.data.code === 200, `登录失败: ${user.username} => ${JSON.stringify(result.data)}`);
+    assert(result.data.code === 200, `鐧诲綍澶辫触: ${user.username} => ${JSON.stringify(result.data)}`);
     return result.data.data;
 }
 
 async function createProduct(token, payload) {
     const result = await requestJson("POST", "/api/products", payload, token);
-    assert(result.data.code === 200, `商品创建失败: ${JSON.stringify(result.data)}`);
+    assert(result.data.code === 200, `鍟嗗搧鍒涘缓澶辫触: ${JSON.stringify(result.data)}`);
     return result.data.data;
 }
 
@@ -236,6 +201,7 @@ function createTinyPngBuffer() {
 }
 
 async function main() {
+    await waitForApiReady({ timeoutMs: 30000, intervalMs: 1000 });
     const users = buildUsers();
     const usernames = Object.values(users).map((item) => item.username);
     const uploadBuffer = createTinyPngBuffer();
@@ -264,8 +230,8 @@ async function main() {
         const listProducts = [];
         for (let index = 0; index < LIST_PRODUCT_COUNT; index += 1) {
             listProducts.push(await createProduct(sellerAuth.token, {
-                title: `并发商品-${index + 1}-${Date.now().toString().slice(-4)}`,
-                description: "用于商品列表并发读取验证",
+                title: `骞跺彂鍟嗗搧-${index + 1}-${Date.now().toString().slice(-4)}`,
+                description: "鐢ㄤ簬鍟嗗搧鍒楄〃骞跺彂璇诲彇楠岃瘉",
                 price: 20 + index,
                 category: "other",
                 condition: "used",
@@ -274,8 +240,8 @@ async function main() {
             }));
         }
         const notificationProduct = await createProduct(sellerAuth.token, {
-            title: `并发通知商品-${Date.now().toString().slice(-4)}`,
-            description: "用于收藏通知并发验证",
+            title: `骞跺彂閫氱煡鍟嗗搧-${Date.now().toString().slice(-4)}`,
+            description: "鐢ㄤ簬鏀惰棌閫氱煡骞跺彂楠岃瘉",
             price: 199,
             category: "other",
             condition: "used",
@@ -290,27 +256,27 @@ async function main() {
                 const auth = actorAuths[senderIndex];
                 messageTasks.push(() => requestJson("POST", "/api/messages", {
                     receiver_id: sellerAuth.user.id,
-                    content: `并发消息-${senderIndex + 1}-${messageIndex + 1}-${Date.now()}`
+                    content: `骞跺彂娑堟伅-${senderIndex + 1}-${messageIndex + 1}-${Date.now()}`
                 }, auth.token).then((result) => {
-                    assert(result.data.code === 200, `消息发送失败: ${JSON.stringify(result.data)}`);
+                    assert(result.data.code === 200, `娑堟伅鍙戦€佸け璐? ${JSON.stringify(result.data)}`);
                     return result.data.data.id;
                 }));
             }
         }
         const messageBatch = await runBatch("messages_send", messageTasks);
         report.batches.messages_send = messageBatch.summary;
-        assert(messageBatch.summary.failed === 0, `消息并发发送存在失败: ${JSON.stringify(messageBatch.summary.failures)}`);
+        assert(messageBatch.summary.failed === 0, `娑堟伅骞跺彂鍙戦€佸瓨鍦ㄥけ璐? ${JSON.stringify(messageBatch.summary.failures)}`);
 
         const unreadAfterMessages = await requestJson("GET", "/api/messages/unread", undefined, sellerAuth.token);
-        assert(unreadAfterMessages.data.code === 200, `未读汇总查询失败: ${JSON.stringify(unreadAfterMessages.data)}`);
+        assert(unreadAfterMessages.data.code === 200, `鏈姹囨€绘煡璇㈠け璐? ${JSON.stringify(unreadAfterMessages.data)}`);
         assert(Number(unreadAfterMessages.data.data.chat_unread_count) === MESSAGE_SENDER_COUNT * MESSAGE_PER_SENDER,
-            `消息未读数异常: ${JSON.stringify(unreadAfterMessages.data.data)}`
+            `娑堟伅鏈鏁板紓甯? ${JSON.stringify(unreadAfterMessages.data.data)}`
         );
 
         const conversationsAfterMessages = await requestJson("GET", "/api/messages/conversations", undefined, sellerAuth.token);
-        assert(conversationsAfterMessages.data.code === 200, `会话列表查询失败: ${JSON.stringify(conversationsAfterMessages.data)}`);
+        assert(conversationsAfterMessages.data.code === 200, `浼氳瘽鍒楄〃鏌ヨ澶辫触: ${JSON.stringify(conversationsAfterMessages.data)}`);
         assert((conversationsAfterMessages.data.data || []).length >= MESSAGE_SENDER_COUNT,
-            `会话聚合数量异常: ${JSON.stringify(conversationsAfterMessages.data.data)}`
+            `浼氳瘽鑱氬悎鏁伴噺寮傚父: ${JSON.stringify(conversationsAfterMessages.data.data)}`
         );
         report.checked.push("消息并发发送、未读统计、会话聚合");
 
@@ -318,95 +284,95 @@ async function main() {
         const listTasks = [];
         for (let index = 0; index < 12; index += 1) {
             listTasks.push(() => requestJson("GET", "/api/products?page=1&page_size=20&sort=latest", undefined, undefined).then((result) => {
-                assert(result.data.code === 200, `商品列表失败: ${JSON.stringify(result.data)}`);
-                assert((result.data.data.list || []).length >= 1, "商品列表为空");
+                assert(result.data.code === 200, `鍟嗗搧鍒楄〃澶辫触: ${JSON.stringify(result.data)}`);
+                assert((result.data.data.list || []).length >= 1, "鍟嗗搧鍒楄〃涓虹┖");
                 return result.data.data.total;
             }));
         }
         for (let index = 0; index < 8; index += 1) {
             listTasks.push(() => requestJson("GET", "/api/products/my/list?page=1&page_size=20", undefined, sellerAuth.token).then((result) => {
-                assert(result.data.code === 200, `我的商品失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `鎴戠殑鍟嗗搧澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.total;
             }));
         }
         for (let index = 0; index < 8; index += 1) {
             listTasks.push(() => requestJson("GET", "/api/messages/conversations", undefined, sellerAuth.token).then((result) => {
-                assert(result.data.code === 200, `会话列表失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `浼氳瘽鍒楄〃澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.length;
             }));
         }
         for (let index = 0; index < 8; index += 1) {
             listTasks.push(() => requestJson("GET", "/api/messages/notifications?kind=interaction&page=1&page_size=20", undefined, sellerAuth.token).then((result) => {
-                assert(result.data.code === 200, `通知列表失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `閫氱煡鍒楄〃澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.total;
             }));
         }
-        assert(listTasks.length === LIST_REQUEST_COUNT, `列表请求数量异常: ${listTasks.length}`);
+        assert(listTasks.length === LIST_REQUEST_COUNT, `鍒楄〃璇锋眰鏁伴噺寮傚父: ${listTasks.length}`);
         const listBatch = await runBatch("lists_fetch", listTasks);
         report.batches.lists_fetch = listBatch.summary;
-        assert(listBatch.summary.failed === 0, `列表并发读取存在失败: ${JSON.stringify(listBatch.summary.failures)}`);
+        assert(listBatch.summary.failed === 0, `鍒楄〃骞跺彂璇诲彇瀛樺湪澶辫触: ${JSON.stringify(listBatch.summary.failures)}`);
         report.checked.push("列表并发读取");
 
         logStep("upload", "并发上传图片并校验静态访问");
         const uploadBatch = await runBatch("upload_single", Array.from({ length: UPLOAD_REQUEST_COUNT }, (_, index) => {
             return () => requestMultipart("/api/upload", sellerAuth.token, `bench-${index + 1}.png`, "image/png", uploadBuffer).then((result) => {
-                assert(result.status === 200 && result.data.code === 200, `上传失败: ${JSON.stringify(result.data)}`);
+                assert(result.status === 200 && result.data.code === 200, `涓婁紶澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.url;
             });
         }));
         report.batches.upload_single = uploadBatch.summary;
-        assert(uploadBatch.summary.failed === 0, `并发上传存在失败: ${JSON.stringify(uploadBatch.summary.failures)}`);
+        assert(uploadBatch.summary.failed === 0, `骞跺彂涓婁紶瀛樺湪澶辫触: ${JSON.stringify(uploadBatch.summary.failures)}`);
 
         const uploadUrls = uploadBatch.raw.map((item) => item.value);
-        assert(new Set(uploadUrls).size === uploadUrls.length, "上传返回了重复 URL");
+        assert(new Set(uploadUrls).size === uploadUrls.length, "涓婁紶杩斿洖浜嗛噸澶?URL");
         const staticBatch = await runBatch("upload_static_fetch", uploadUrls.map((url) => {
-            return () => requestText(`${BASE_URL}${url}`).then((result) => {
-                assert(result.status === 200, `静态文件访问失败: ${url}`);
+            return () => requestText(url).then((result) => {
+                assert(result.status === 200, `闈欐€佹枃浠惰闂け璐? ${url}`);
                 return result.status;
             });
         }));
         report.batches.upload_static_fetch = staticBatch.summary;
-        assert(staticBatch.summary.failed === 0, `静态访问存在失败: ${JSON.stringify(staticBatch.summary.failures)}`);
+        assert(staticBatch.summary.failed === 0, `闈欐€佽闂瓨鍦ㄥけ璐? ${JSON.stringify(staticBatch.summary.failures)}`);
         report.checked.push("上传并发与静态访问");
 
-        logStep("notification", "并发创建通知并校验读取一致性");
+        logStep("notification", "并发创建通知并校验已读一致性");
         const favoriteBatch = await runBatch("notification_favorite", actorAuths.map((auth) => {
             return () => requestJson("POST", `/api/products/${notificationProduct.id}/favorite`, undefined, auth.token).then((result) => {
-                assert(result.data.code === 200, `收藏失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `鏀惰棌澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.favorited;
             });
         }));
         report.batches.notification_favorite = favoriteBatch.summary;
-        assert(favoriteBatch.summary.failed === 0, `通知创建存在失败: ${JSON.stringify(favoriteBatch.summary.failures)}`);
+        assert(favoriteBatch.summary.failed === 0, `閫氱煡鍒涘缓瀛樺湪澶辫触: ${JSON.stringify(favoriteBatch.summary.failures)}`);
 
         const notificationPollBatch = await runBatch("notification_poll", Array.from({ length: 10 }, () => {
             return () => requestJson("GET", "/api/messages/notifications?kind=interaction&page=1&page_size=50", undefined, sellerAuth.token).then((result) => {
-                assert(result.data.code === 200, `通知轮询失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `閫氱煡杞澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.unread_count;
             });
         }));
         report.batches.notification_poll = notificationPollBatch.summary;
-        assert(notificationPollBatch.summary.failed === 0, `通知轮询存在失败: ${JSON.stringify(notificationPollBatch.summary.failures)}`);
+        assert(notificationPollBatch.summary.failed === 0, `閫氱煡杞瀛樺湪澶辫触: ${JSON.stringify(notificationPollBatch.summary.failures)}`);
 
         const finalNotifications = await requestJson("GET", "/api/messages/notifications?kind=interaction&page=1&page_size=50", undefined, sellerAuth.token);
-        assert(finalNotifications.data.code === 200, `最终通知查询失败: ${JSON.stringify(finalNotifications.data)}`);
+        assert(finalNotifications.data.code === 200, `鏈€缁堥€氱煡鏌ヨ澶辫触: ${JSON.stringify(finalNotifications.data)}`);
         assert(Number(finalNotifications.data.data.unread_count) === FAVORITE_ACTOR_COUNT,
-            `通知未读数异常: ${JSON.stringify(finalNotifications.data.data)}`
+            `閫氱煡鏈鏁板紓甯? ${JSON.stringify(finalNotifications.data.data)}`
         );
 
         const notificationReadBatch = await runBatch("notification_read", Array.from({ length: NOTIFICATION_READ_REQUEST_COUNT }, () => {
             return () => requestJson("POST", "/api/messages/notifications/read", { kind: "interaction" }, sellerAuth.token).then((result) => {
-                assert(result.data.code === 200, `通知已读失败: ${JSON.stringify(result.data)}`);
+                assert(result.data.code === 200, `閫氱煡宸茶澶辫触: ${JSON.stringify(result.data)}`);
                 return result.data.data.interaction_unread_count;
             });
         }));
         report.batches.notification_read = notificationReadBatch.summary;
-        assert(notificationReadBatch.summary.failed === 0, `通知并发已读存在失败: ${JSON.stringify(notificationReadBatch.summary.failures)}`);
+        assert(notificationReadBatch.summary.failed === 0, `閫氱煡骞跺彂宸茶瀛樺湪澶辫触: ${JSON.stringify(notificationReadBatch.summary.failures)}`);
 
         const unreadAfterRead = await requestJson("GET", "/api/messages/unread", undefined, sellerAuth.token);
-        assert(unreadAfterRead.data.code === 200, `通知已读后未读查询失败: ${JSON.stringify(unreadAfterRead.data)}`);
+        assert(unreadAfterRead.data.code === 200, `閫氱煡宸茶鍚庢湭璇绘煡璇㈠け璐? ${JSON.stringify(unreadAfterRead.data)}`);
         assert(Number(unreadAfterRead.data.data.interaction_unread_count) === 0,
-            `通知并发已读后仍有未读: ${JSON.stringify(unreadAfterRead.data.data)}`
+            `閫氱煡骞跺彂宸茶鍚庝粛鏈夋湭璇? ${JSON.stringify(unreadAfterRead.data.data)}`
         );
         report.checked.push("通知并发创建、轮询、并发已读");
 
@@ -427,3 +393,8 @@ main().catch((error) => {
     console.error(error && error.stack ? error.stack : error);
     process.exit(1);
 });
+
+
+
+
+

@@ -6,7 +6,7 @@ async function adminMiddleware(req, res, next) {
     }
 
     const db = getDb();
-    const user = await db.prepare("SELECT id, is_admin FROM users WHERE id=?").get(req.user.id);
+    const user = await db.prepare("SELECT id, is_admin, can_moderate FROM users WHERE id=?").get(req.user.id);
     if (!user) {
         return res.status(401).json({ code: 401, message: "用户不存在" });
     }

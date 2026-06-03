@@ -11,8 +11,10 @@
     "doctor-env": "node scripts/doctor-env.js",
     "cleanup-uploads": "node scripts/cleanup-uploads.js",
     "smoke-core-flow": "node scripts/smoke-core-flow.js",
+    "smoke-core-flow:self": "node scripts/run-with-server.js scripts/smoke-core-flow.js",
     "smoke-page-access": "node scripts/smoke-page-access.js",
-    "concurrency-check": "node scripts/concurrency-check.js"
+    "concurrency-check": "node scripts/concurrency-check.js",
+    "concurrency-check:self": "node scripts/run-with-server.js scripts/concurrency-check.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

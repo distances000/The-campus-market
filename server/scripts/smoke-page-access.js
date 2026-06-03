@@ -1,12 +1,17 @@
 const http = require("http");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
+const { getDatabaseUrl } = require("./shared");
 
 const API_HOST = process.env.SMOKE_API_HOST || "127.0.0.1";
 const API_PORT = Number.parseInt(process.env.SMOKE_API_PORT || "3000", 10);
 const PAGE_HOST = process.env.SMOKE_PAGE_HOST || "127.0.0.1";
 const PAGE_PORT = Number.parseInt(process.env.SMOKE_PAGE_PORT || "4173", 10);
-const DATABASE_URL = process.env.DATABASE_URL || "mysql://root:czh814814@127.0.0.1:3306/campus_market";
+const DATABASE_URL = getDatabaseUrl();
+
+if (!DATABASE_URL) {
+    throw new Error("缺少 DATABASE_URL，请先配置数据库连接串后再执行 smoke-page-access");
+}
 
 function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));

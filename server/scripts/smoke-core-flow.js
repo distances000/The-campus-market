@@ -1,48 +1,9 @@
-const http = require("http");
 const mysql = require("mysql2/promise");
-
-const BASE_URL = {
-    hostname: "127.0.0.1",
-    port: 3000
-};
-const DATABASE_URL = process.env.DATABASE_URL || "mysql://root:czh814814@127.0.0.1:3306/campus_market";
-
-function buildJsonRequest(method, path, body, token) {
-    return new Promise((resolve, reject) => {
-        const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
-        const req = http.request({
-            ...BASE_URL,
-            path,
-            method,
-            headers: {
-                "Content-Type": "application/json",
-                ...(payload ? { "Content-Length": payload.length } : {}),
-                ...(token ? { Authorization: `Bearer ${token}` } : {})
-            }
-        }, (res) => {
-            let raw = "";
-            res.setEncoding("utf8");
-            res.on("data", (chunk) => {
-                raw += chunk;
-            });
-            res.on("end", () => {
-                try {
-                    resolve({
-                        status: res.statusCode,
-                        data: raw ? JSON.parse(raw) : {}
-                    });
-                } catch (error) {
-                    reject(new Error(`Invalid JSON response for ${method} ${path}: ${raw}`));
-                }
-            });
-        });
-        req.on("error", reject);
-        if (payload) {
-            req.write(payload);
-        }
-        req.end();
-    });
-}
+const {
+    buildJsonRequest,
+    getDatabaseUrl,
+    waitForApiReady
+} = require("./shared");
 
 function assert(condition, message) {
     if (!condition) {
@@ -59,7 +20,7 @@ function logStep(step, detail) {
 }
 
 async function queryDb(sql, params = []) {
-    const db = await mysql.createConnection(DATABASE_URL);
+    const db = await mysql.createConnection(getDatabaseUrl());
     try {
         const [rows] = await db.query(sql, params);
         return rows;
@@ -69,7 +30,7 @@ async function queryDb(sql, params = []) {
 }
 
 async function promoteUserAsAdmin(username) {
-    const db = await mysql.createConnection(DATABASE_URL);
+    const db = await mysql.createConnection(getDatabaseUrl());
     try {
         await db.query(`
             UPDATE users
@@ -85,7 +46,7 @@ async function promoteUserAsAdmin(username) {
 }
 
 async function cleanupTestData(usernames) {
-    const db = await mysql.createConnection(DATABASE_URL);
+    const db = await mysql.createConnection(getDatabaseUrl());
     try {
         const placeholders = usernames.map(() => "?").join(",");
         const [userRows] = await db.query(`SELECT id, username FROM users WHERE username IN (${placeholders})`, usernames);
@@ -187,6 +148,7 @@ async function getNotificationEvents(token, kind) {
     const usernames = Object.values(users).map((item) => item.username);
     const tempPassword = "Temp1234!";
     try {
+        await waitForApiReady({ timeoutMs: 30000, intervalMs: 1000 });
         logStep("setup", "cleaning stale smoke data");
         await cleanupTestData(usernames);
 
