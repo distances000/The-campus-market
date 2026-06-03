@@ -1,0 +1,24 @@
+{
+    "ok": false,
+    "findings": [
+        "举报处理页未能完成快捷操作：等待页面条件超时: document.querySelectorAll(\".table-actions button, .table-actions .el-button\").length > 1",
+        "前端关键路径里没有可执行的下单入口，当前无法在实浏览器中完成订单流程验证。"
+    ],
+    "screenshots": [
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-home-after-register.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-product-detail.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-profile.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-messages-empty.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-chat.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-product-detail-buyer.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-post-detail.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-moderation.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\desktop-moderation-action-failed.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-home.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-product-detail.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-post-detail.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-messages.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-profile.png",
+        "C:\\Users\\33981\\Documents\\MyProjects\\Web\\The-campus-market\\.codex-logs\\browser-verify-output\\mobile-publish.png"
+    ]
+}
