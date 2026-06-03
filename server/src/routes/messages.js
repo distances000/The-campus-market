@@ -9,6 +9,7 @@ const {
     pushConversationRefresh,
     pushUnreadSummary
 } = require("../utils/realtime");
+const { buildLockName, withNamedLock } = require("../utils/db-lock");
 const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const {
     ensureOptionalEnum,

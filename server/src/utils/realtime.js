@@ -99,17 +99,26 @@ async function publishUserEvent(db, userId, type, payload) {
 
     const normalizedUserId = Number(userId);
     const payloadJson = JSON.stringify(payload ?? {});
-    const result = await db.prepare(`
-        INSERT INTO realtime_events (
-            target_user_id,
-            event_type,
-            payload_json,
-            origin_instance_id
-        ) VALUES (?, ?, ?, ?)
-    `).run(normalizedUserId, type, payloadJson, REALTIME_INSTANCE_ID);
+    try {
+        const result = await db.prepare(`
+            INSERT INTO realtime_events (
+                target_user_id,
+                event_type,
+                payload_json,
+                origin_instance_id
+            ) VALUES (?, ?, ?, ?)
+        `).run(normalizedUserId, type, payloadJson, REALTIME_INSTANCE_ID);
 
-    sendEvent(normalizedUserId, type, payload);
-    return result.lastInsertRowid || null;
+        sendEvent(normalizedUserId, type, payload);
+        return result.lastInsertRowid || null;
+    } catch (error) {
+        logError("realtime.publish_failed", "实时事件写入失败", error, {
+            target_user_id: normalizedUserId,
+            event_type: type,
+            instance_id: REALTIME_INSTANCE_ID
+        });
+        return null;
+    }
 }
 
 async function fetchLatestRealtimeEventId(db) {
