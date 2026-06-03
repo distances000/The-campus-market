@@ -214,3 +214,7 @@ Nginx 当前会把后端流量分发到：
    - 80 端口是否可访问
    - `DOMAINS` 是否填写正确
    - `LETSENCRYPT_EMAIL` 是否填写正确
+## 规则文档
+
+- [内容治理规则](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\content-governance.md)
+- [数据隐私与可见范围](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\data-privacy.md)
