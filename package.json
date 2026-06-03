@@ -3,7 +3,12 @@
     "name": "the-campus-market",
     "type": "module",
     "scripts": {
+        "build:client": "npm --prefix client run build",
+        "doctor:env": "npm --prefix server run doctor-env",
+        "doctor:db": "npm --prefix server run doctor-db",
+        "start:server": "npm --prefix server run start",
         "dev:client": "npm --prefix client run dev",
-        "dev:server": "npm --prefix server run dev"
+        "dev:server": "npm --prefix server run dev",
+        "verify:local": "npm run build:client && npm run doctor:env && npm run doctor:db"
     }
 }
