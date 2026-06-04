@@ -192,3 +192,7 @@ Nginx 褰撳墠浼氭妸鍚庣娴侀噺鍒嗗彂鍒帮細
 
 - [数据库备份与恢复说明](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)
 
+## 环境变量
+
+- [环境变量说明](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\production-config.md)
+
