@@ -16,6 +16,8 @@
         "smoke:concurrency": "npm --prefix server run concurrency-check:self",
         "smoke:critical": "npm run smoke:core && npm run smoke:auth && npm run test:integration && npm run test:repeat-submit",
         "smoke": "npm run smoke:critical && npm run smoke:page && npm run smoke:concurrency",
+        "regress:local": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke:critical",
+        "regress:full": "npm run verify:all",
         "verify:all": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke"
     }
 }
