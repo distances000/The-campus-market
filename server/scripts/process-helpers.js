@@ -1,4 +1,5 @@
 const { spawn } = require("child_process");
+const net = require("net");
 
 function attachPrefixedOutput(child, prefix) {
     if (!child) {
@@ -65,8 +66,28 @@ function stopChild(child, timeoutMs = 5000) {
     });
 }
 
+function findFreePort(host = "127.0.0.1") {
+    return new Promise((resolve, reject) => {
+        const server = net.createServer();
+        server.unref();
+        server.on("error", reject);
+        server.listen(0, host, () => {
+            const address = server.address();
+            const port = typeof address === "object" && address ? address.port : null;
+            server.close((error) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                resolve(port);
+            });
+        });
+    });
+}
+
 module.exports = {
     attachPrefixedOutput,
+    findFreePort,
     spawnNodeProcess,
     stopChild,
     waitForChildExit

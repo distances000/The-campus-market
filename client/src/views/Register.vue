@@ -30,7 +30,9 @@
                         placeholder="请输入邮箱（选填）"
                         autocomplete="email"
                     />
-                    <div class="form-tip">邮箱验证码已暂时关闭。现在可以直接注册，后续补 SMTP 后再恢复邮箱验证。</div>
+                    <div class="form-tip">
+                        邮箱验证码已暂时关闭。现在可以直接注册，后续补齐 SMTP 后再恢复邮箱验证。
+                    </div>
                 </el-form-item>
                 <el-form-item prop="password">
                     <el-input

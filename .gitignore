@@ -37,3 +37,4 @@ server/data/*.db-wal
 server/uploads/
 backups/
 release-state/
+.codex-logs/

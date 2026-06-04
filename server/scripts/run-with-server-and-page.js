@@ -4,6 +4,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { getApiBase, waitForApiReady } = require("./shared");
 const {
+    findFreePort,
     spawnNodeProcess,
     stopChild,
     waitForChildExit
@@ -97,14 +98,19 @@ async function main() {
     const serverDir = path.resolve(__dirname, "..");
     const clientDir = path.resolve(serverDir, "..", "client");
     const targetPath = path.resolve(serverDir, targetScript);
-    const apiBase = getApiBase();
+    const configuredApiBase = getApiBase();
+    const apiPort = process.env.SMOKE_API_PORT
+        ? configuredApiBase.port
+        : await findFreePort(configuredApiBase.hostname);
     const pageHost = process.env.SMOKE_PAGE_HOST || "127.0.0.1";
-    const pagePort = Number(process.env.SMOKE_PAGE_PORT || 4173);
+    const pagePort = process.env.SMOKE_PAGE_PORT
+        ? Number(process.env.SMOKE_PAGE_PORT)
+        : await findFreePort(pageHost);
     const sharedEnv = {
         ...process.env,
-        PORT: String(apiBase.port),
-        SMOKE_API_HOST: apiBase.hostname,
-        SMOKE_API_PORT: String(apiBase.port),
+        PORT: String(apiPort),
+        SMOKE_API_HOST: configuredApiBase.hostname,
+        SMOKE_API_PORT: String(apiPort),
         SMOKE_PAGE_HOST: pageHost,
         SMOKE_PAGE_PORT: String(pagePort),
         ADMIN_BOOTSTRAP_KEY: process.env.ADMIN_BOOTSTRAP_KEY || "test-bootstrap-key"
