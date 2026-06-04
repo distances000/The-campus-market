@@ -44,7 +44,7 @@ function buildJsonRequest(method, path, body, token) {
                         data: raw ? JSON.parse(raw) : {}
                     });
                 } catch (error) {
-                    reject(new Error(`Invalid JSON response for ${method} ${path}: ${raw}`));
+                    reject(new Error(`接口响应不是合法 JSON: ${method} ${path} => ${raw}`));
                 }
             });
         });
@@ -70,7 +70,7 @@ async function waitForApiReady({ timeoutMs = 30000, intervalMs = 1000 } = {}) {
             if (result.status === 200 && result.data && result.data.code === 200) {
                 return true;
             }
-            lastError = new Error(`Unexpected health response: ${JSON.stringify(result.data)}`);
+            lastError = new Error(`健康检查返回异常: ${JSON.stringify(result.data)}`);
         } catch (error) {
             lastError = error;
         }

@@ -48,6 +48,7 @@ function runShellCommand(command) {
                 resolve();
                 return;
             }
+
             reject(new Error(`命令执行失败: ${command}`));
         });
     });

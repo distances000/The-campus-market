@@ -1,9 +1,10 @@
-const { spawn } = require("child_process");
 const path = require("path");
+const { waitForApiReady, getApiBase } = require("./shared");
 const {
-    getApiBase,
-    waitForApiReady
-} = require("./shared");
+    spawnNodeProcess,
+    stopChild,
+    waitForChildExit
+} = require("./process-helpers");
 
 async function main() {
     const targetScript = process.argv[2];
@@ -22,42 +23,14 @@ async function main() {
         ADMIN_BOOTSTRAP_KEY: process.env.ADMIN_BOOTSTRAP_KEY || "test-bootstrap-key"
     };
 
-    const server = spawn(process.execPath, [path.join(serverDir, "src", "index.js")], {
+    const server = spawnNodeProcess(path.join(serverDir, "src", "index.js"), {
         cwd: serverDir,
         env: serverEnv,
-        stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    server.stdout.on("data", (chunk) => {
-        process.stdout.write(`[server] ${chunk}`);
-    });
-
-    server.stderr.on("data", (chunk) => {
-        process.stderr.write(`[server] ${chunk}`);
-    });
-
-    const stopServer = () => new Promise((resolve) => {
-        if (server.killed || server.exitCode !== null || server.signalCode !== null) {
-            resolve();
-            return;
-        }
-
-        const timer = setTimeout(() => {
-            if (!server.killed) {
-                server.kill("SIGKILL");
-            }
-        }, 5000);
-
-        server.once("exit", () => {
-            clearTimeout(timer);
-            resolve();
-        });
-
-        server.kill("SIGTERM");
+        label: "server"
     });
 
     const terminate = async (signalCode) => {
-        await stopServer();
+        await stopChild(server);
         process.exit(signalCode);
     };
 
@@ -74,32 +47,18 @@ async function main() {
     try {
         await waitForApiReady({ timeoutMs: 60000, intervalMs: 1000 });
 
-        target = spawn(process.execPath, [targetPath], {
+        target = spawnNodeProcess(targetPath, {
             cwd: serverDir,
-            env: serverEnv,
-            stdio: "inherit"
+            env: serverEnv
         });
 
-        const exitCode = await new Promise((resolve) => {
-            target.on("exit", (code, signal) => {
-                if (signal) {
-                    resolve(128 + (signal === "SIGINT" ? 2 : 15));
-                    return;
-                }
-
-                resolve(code ?? 0);
-            });
-        });
-
-        process.exitCode = exitCode;
+        process.exitCode = await waitForChildExit(target);
     } catch (error) {
         console.error(error && error.stack ? error.stack : error);
         process.exitCode = 1;
     } finally {
-        if (target && target.exitCode === null && target.signalCode === null) {
-            target.kill("SIGTERM");
-        }
-        await stopServer();
+        await stopChild(target);
+        await stopChild(server);
     }
 }
 

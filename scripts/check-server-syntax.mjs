@@ -57,6 +57,7 @@ function runNodeCheck(filePath) {
                 resolve();
                 return;
             }
+
             reject(new Error(`语法检查失败: ${filePath}`));
         });
     });

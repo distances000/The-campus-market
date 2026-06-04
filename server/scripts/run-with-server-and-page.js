@@ -2,10 +2,12 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { spawn } = require("child_process");
+const { getApiBase, waitForApiReady } = require("./shared");
 const {
-    getApiBase,
-    waitForApiReady
-} = require("./shared");
+    spawnNodeProcess,
+    stopChild,
+    waitForChildExit
+} = require("./process-helpers");
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +53,7 @@ async function waitForPageReady(host, port, timeoutMs = 60000, intervalMs = 1000
             if (result.status === 200 && result.body.includes('<div id="app"></div>')) {
                 return true;
             }
-            lastError = new Error(`Unexpected page response: ${result.status}`);
+            lastError = new Error(`页面响应异常: ${result.status}`);
         } catch (error) {
             lastError = error;
         }
@@ -73,76 +75,16 @@ async function ensureClientDist(clientDir) {
             cwd: clientDir,
             stdio: "inherit"
         });
+
         build.on("exit", (code) => {
             if (code === 0) {
                 resolve();
                 return;
             }
+
             reject(new Error(`前端构建失败，退出码 ${code}`));
         });
         build.on("error", reject);
-    });
-}
-
-function spawnServer(scriptPath, cwd, env) {
-    const child = spawn(process.execPath, [scriptPath], {
-        cwd,
-        env,
-        stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    child.stdout.on("data", (chunk) => {
-        process.stdout.write(`[server] ${chunk}`);
-    });
-
-    child.stderr.on("data", (chunk) => {
-        process.stderr.write(`[server] ${chunk}`);
-    });
-
-    return child;
-}
-
-function spawnPageServer(serverDir, host, port, env) {
-    const child = spawn(process.execPath, [path.join(serverDir, "scripts", "serve-client-dist.js")], {
-        cwd: serverDir,
-        env: {
-            ...env,
-            SMOKE_PAGE_HOST: host,
-            SMOKE_PAGE_PORT: String(port)
-        },
-        stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    child.stdout.on("data", (chunk) => {
-        process.stdout.write(`[page] ${chunk}`);
-    });
-
-    child.stderr.on("data", (chunk) => {
-        process.stderr.write(`[page] ${chunk}`);
-    });
-
-    return child;
-}
-
-function stopChild(child) {
-    return new Promise((resolve) => {
-        if (!child || child.killed || child.exitCode !== null || child.signalCode !== null) {
-            resolve();
-            return;
-        }
-
-        const timer = setTimeout(() => {
-            if (!child.killed) {
-                child.kill("SIGKILL");
-            }
-        }, 5000);
-
-        child.once("exit", () => {
-            clearTimeout(timer);
-            resolve();
-        });
-
-        child.kill("SIGTERM");
     });
 }
 
@@ -164,46 +106,43 @@ async function main() {
         SMOKE_API_HOST: apiBase.hostname,
         SMOKE_API_PORT: String(apiBase.port),
         SMOKE_PAGE_HOST: pageHost,
-        SMOKE_PAGE_PORT: String(pagePort)
+        SMOKE_PAGE_PORT: String(pagePort),
+        ADMIN_BOOTSTRAP_KEY: process.env.ADMIN_BOOTSTRAP_KEY || "test-bootstrap-key"
     };
 
-    const server = spawnServer(path.join(serverDir, "src", "index.js"), serverDir, sharedEnv);
+    const server = spawnNodeProcess(path.join(serverDir, "src", "index.js"), {
+        cwd: serverDir,
+        env: sharedEnv,
+        label: "server"
+    });
+
+    let pageServer;
+    let target;
 
     try {
         await waitForApiReady({ timeoutMs: 60000, intervalMs: 1000 });
         await ensureClientDist(clientDir);
 
-        const pageServer = spawnPageServer(serverDir, pageHost, pagePort, sharedEnv);
-        try {
-            await waitForPageReady(pageHost, pagePort);
+        pageServer = spawnNodeProcess(path.join(serverDir, "scripts", "serve-client-dist.js"), {
+            cwd: serverDir,
+            env: sharedEnv,
+            label: "page"
+        });
 
-            const target = spawn(process.execPath, [targetPath], {
-                cwd: serverDir,
-                env: sharedEnv,
-                stdio: "inherit"
-            });
+        await waitForPageReady(pageHost, pagePort);
 
-            const exitCode = await new Promise((resolve) => {
-                target.on("exit", (code, signal) => {
-                    if (signal) {
-                        resolve(128 + (signal === "SIGINT" ? 2 : 15));
-                        return;
-                    }
-                    resolve(code ?? 0);
-                });
-            });
+        target = spawnNodeProcess(targetPath, {
+            cwd: serverDir,
+            env: sharedEnv
+        });
 
-            process.exitCode = exitCode;
-            if (target.exitCode === null && target.signalCode === null) {
-                target.kill("SIGTERM");
-            }
-        } finally {
-            await stopChild(pageServer);
-        }
+        process.exitCode = await waitForChildExit(target);
     } catch (error) {
         console.error(error && error.stack ? error.stack : error);
         process.exitCode = 1;
     } finally {
+        await stopChild(target);
+        await stopChild(pageServer);
         await stopChild(server);
     }
 }
