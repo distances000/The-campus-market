@@ -1,54 +1,43 @@
-# 数据备份与恢复
+# 数据库备份与恢复说明
 
-本文档对应当前 Docker Compose 生产部署方案，覆盖：
+本文档只聚焦数据库和上传目录的备份、恢复、初始化顺序与迁移顺序。
 
-- MySQL 数据备份
-- 上传文件备份
-- 恢复步骤
-- 日常执行建议
+适用范围：
 
-## 1. 备份范围
+1. 当前 `docker-compose.yml` 的生产部署方案
+2. MySQL 业务库
+3. `server_uploads` 上传卷
 
-必须备份以下两类数据：
+## 备份范围
 
-- MySQL 业务库
-    - 订单、商品、帖子、消息、举报、通知、用户资料都在库里
-- 上传文件
-    - 商品图、帖子图、头像等都在 `server_uploads` 卷里
+必须同时备份两类数据：
 
-不建议只备份数据库，不备份上传目录。否则恢复后会出现数据记录存在，但图片资源丢失的问题。
+1. MySQL 业务库
+2. 上传文件目录
 
-## 2. 现成脚本
+原因：
 
-- 创建备份
-    - [create-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\create-backup.sh)
-- 恢复备份
-    - [restore-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\restore-backup.sh)
+1. 只备份数据库，不备份上传目录，恢复后会出现商品、帖子、头像记录存在，但图片文件丢失
+2. 只备份上传目录，不备份数据库，恢复后文件无法和业务记录对应
 
-脚本默认基于根目录 `docker-compose.yml` 执行，并自动读取根目录 `.env`。
+## 现有脚本
 
-## 3. 备份目录结构
+备份脚本：
 
-每次备份会生成一个时间戳目录，例如：
+1. [create-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\create-backup.sh)
 
-```text
-backups/
-    20260602-120000/
-        mysql.sql
-        uploads.tar.gz
-        manifest.txt
-```
+恢复脚本：
 
-说明：
+1. [restore-backup.sh](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\restore-backup.sh)
 
-- `mysql.sql`
-    - 使用 `mysqldump` 导出的全量数据库 SQL
-- `uploads.tar.gz`
-    - 当前 `/app/uploads` 目录完整打包
-- `manifest.txt`
-    - 记录备份时间和来源服务
+相关数据库迁移命令：
 
-## 4. 创建备份
+1. [server/package.json](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\server\package.json)
+2. `npm run migrate-db`
+3. `npm run init-db`
+4. `npm run doctor-db`
+
+## 备份命令
 
 在项目根目录执行：
 
@@ -56,121 +45,177 @@ backups/
 sh deploy/backup/create-backup.sh
 ```
 
-执行结果：
+默认产物结构：
 
-- 导出 MySQL 数据到 `backups/<timestamp>/mysql.sql`
-- 导出上传目录到 `backups/<timestamp>/uploads.tar.gz`
-- 按 `BACKUP_RETENTION_DAYS` 自动清理过期备份目录
-
-## 5. 恢复前要求
-
-恢复是高风险操作，必须先满足这些前提：
-
-1. 确认恢复窗口
-    - 恢复期间不要继续写入新订单、新消息、新上传
-2. 先做一次当前现场备份
-    - 不要在没有二次备份的情况下直接覆盖线上数据
-3. 明确恢复来源
-    - 必须知道要恢复哪个时间点的备份目录
-
-## 6. 恢复步骤
-
-执行：
-
-```bash
-sh deploy/backup/restore-backup.sh backups/20260602-120000 --force
+```text
+backups/
+    20260604-120000/
+        mysql.sql
+        uploads.tar.gz
+        manifest.txt
 ```
 
-脚本行为：
+各文件含义：
+
+1. `mysql.sql`
+   当前 MySQL 全量导出
+2. `uploads.tar.gz`
+   当前 `/app/uploads` 全量打包
+3. `manifest.txt`
+   记录时间戳、来源服务和备份目录
+
+## 恢复命令
+
+在项目根目录执行：
+
+```bash
+sh deploy/backup/restore-backup.sh backups/20260604-120000 --force
+```
+
+恢复脚本会做这些事：
 
 1. 启动 `mysql`
 2. 停止 `nginx frontend server1 server2`
 3. 用 `mysql.sql` 覆盖恢复数据库
-4. 清空现有上传目录内容
-5. 用 `uploads.tar.gz` 恢复上传文件
-6. 自动重新启动已停止的应用服务
+4. 清空当前上传目录
+5. 解压 `uploads.tar.gz`
+6. 重新拉起被停止的应用服务
 
-说明：
+## 初始化顺序
 
-- 恢复脚本会覆盖数据库内容
-- 恢复脚本会清空当前上传目录后再解压备份
-- 所以必须先做现场备份，再做恢复
+### 首次部署
 
-## 7. 恢复后检查
+首次部署建议按这个顺序：
 
-恢复完成后至少检查这些：
-
-1. 服务状态
+1. 准备根目录 `.env`
+2. 启动基础服务
 
 ```bash
-docker compose ps
+docker compose up -d mysql
 ```
 
-2. 后端健康检查
+3. 执行数据库迁移
 
 ```bash
-curl http://127.0.0.1:${HTTP_PORT:-80}/api/health
+cd server
+npm run migrate-db
 ```
 
-3. 核心页面与资源
+4. 做数据库结构自检
 
-- 首页是否正常
-- 商品详情图片是否正常显示
-- 帖子图片是否正常显示
-- 消息、订单、举报后台是否正常打开
+```bash
+npm run doctor-db
+```
 
-4. 核心业务抽查
+5. 再启动全部服务
 
-- 登录
-- 查看订单
-- 查看消息
-- 查看商品图
-- 查看帖子图
+```bash
+cd ..
+docker compose up -d --build
+```
 
-## 8. 建议频率
+### 重复部署
+
+重复部署不要手改表结构，统一按下面顺序：
+
+1. 更新代码
+2. 执行迁移
+
+```bash
+cd server
+npm run migrate-db
+```
+
+3. 执行自检
+
+```bash
+npm run doctor-db
+```
+
+4. 再重启或发布应用
+
+### 从备份恢复到新环境
+
+从旧备份恢复到一台新机器时，顺序必须是：
+
+1. 准备 `.env`
+2. 启动 `mysql`
+3. 执行恢复脚本
+4. 恢复完成后再执行一次迁移
+
+```bash
+cd server
+npm run migrate-db
+```
+
+5. 再执行一次结构自检
+
+```bash
+npm run doctor-db
+```
+
+6. 最后启动全部服务
+
+原因：
+
+1. 备份里的 `mysql.sql` 代表某个历史时间点的库结构
+2. 新代码可能已经新增迁移
+3. 恢复后必须再跑一次迁移，补齐备份快照之后的新列、新索引、新表
+
+## 数据迁移顺序
+
+数据库迁移顺序以 [init.js](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\server\src\models\init.js) 中的 `migrations` 数组为准，当前顺序是：
+
+1. `20260602_001_base_tables`
+2. `20260602_002_users_upgrade`
+3. `20260602_002_verification_codes_upgrade`
+4. `20260602_003_products_upgrade`
+5. `20260602_004_posts_social_upgrade`
+6. `20260602_005_message_and_notification_upgrade`
+7. `20260602_006_relation_upgrade`
+8. `20260602_007_order_review_upgrade`
+9. `20260602_008_report_and_reset_upgrade`
+10. `20260602_009_realtime_events_upgrade`
+11. `20260602_010_schema_drift_fix`
+
+执行规则：
+
+1. `schema_migrations` 记录已执行版本
+2. `npm run migrate-db` 会按顺序跳过已执行版本
+3. 新迁移必须追加，不要插队改旧版本号
+4. 恢复历史备份后，也按同一顺序补齐缺失迁移
+
+## 恢复后的检查顺序
+
+恢复完成后，至少检查这些项：
+
+1. 数据库迁移是否补齐
+
+```bash
+cd server
+npm run doctor-db
+```
+
+2. 服务健康检查
+
+```bash
+curl http://127.0.0.1:3000/api/health
+```
+
+3. 上传目录是否可访问
+4. 首页、商品详情、帖子详情是否能打开
+5. 登录、消息、订单、举报后台是否能正常读取历史数据
+
+## 运维建议
 
 最低建议：
 
-- 数据库：每天至少 1 次全量备份
-- 上传目录：每天至少 1 次全量备份
+1. 每天至少一次全量备份
+2. 每次发布前额外做一次备份
+3. 每次恢复后都执行 `migrate-db + doctor-db`
 
-如果业务活跃，建议：
+不要做的事：
 
-- 每 6 小时 1 次全量备份
-- 大促或高峰期额外加密集备份
-
-## 9. 定时任务示例
-
-Linux `cron` 示例，每天凌晨 3 点执行：
-
-```cron
-0 3 * * * cd /srv/the-campus-market && /bin/sh deploy/backup/create-backup.sh >> /var/log/the-campus-market-backup.log 2>&1
-```
-
-## 10. 相关配置项
-
-建议放在根目录 `.env`：
-
-```env
-BACKUP_ROOT_DIR=./backups
-BACKUP_RETENTION_DAYS=7
-RESTORE_STOP_APPLICATION=true
-RESTORE_STOP_SERVICES=nginx frontend server1 server2
-```
-
-## 11. 边界说明
-
-当前这套方案是：
-
-- 全量备份
-- 基于 Docker Compose
-- 适合当前单库单上传卷部署
-
-还没有做：
-
-- 增量备份
-- 异地备份
-- 自动上传对象存储
-- 自动恢复演练
-
-这些如果要补，下一步应该直接做“备份产物同步到 OSS / S3”。
+1. 不要手工改表后再跳过迁移
+2. 不要只恢复数据库不恢复上传目录
+3. 不要恢复历史备份后直接启动新版本而不补迁移

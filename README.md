@@ -188,3 +188,7 @@ Nginx 褰撳墠浼氭妸鍚庣娴侀噺鍒嗗彂鍒帮細
 - [内容治理规则](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\content-governance.md)
 - [数据隐私与可见范围](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\data-privacy.md)
 
+## 数据库运维
+
+- [数据库备份与恢复说明](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\backup\backup-plan.md)
+
