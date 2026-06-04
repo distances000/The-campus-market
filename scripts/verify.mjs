@@ -3,15 +3,18 @@ import { spawn } from "node:child_process";
 const CHECK_SETS = {
     local: [
         { name: "前端构建", command: "npm run build:client" },
-        { name: "环境自检", command: "npm run doctor:env" },
-        { name: "数据库自检", command: "npm run doctor:db" },
-        { name: "关键回归", command: "npm run smoke:critical" }
+        { name: "后端语法检查", command: "npm run check:server:syntax" },
+        { name: "环境检查", command: "npm run doctor:env" },
+        { name: "数据库检查", command: "npm run doctor:db" },
+        { name: "核心回归", command: "npm run smoke:critical" }
     ],
     full: [
         { name: "前端构建", command: "npm run build:client" },
-        { name: "环境自检", command: "npm run doctor:env" },
-        { name: "数据库自检", command: "npm run doctor:db" },
-        { name: "全量回归", command: "npm run smoke" }
+        { name: "后端语法检查", command: "npm run check:server:syntax" },
+        { name: "环境检查", command: "npm run doctor:env" },
+        { name: "数据库检查", command: "npm run doctor:db" },
+        { name: "核心回归", command: "npm run smoke:critical" },
+        { name: "并发检查", command: "npm run smoke:concurrency" }
     ]
 };
 

@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "build:client": "npm --prefix client run build",
+        "check:server:syntax": "node scripts/check-server-syntax.mjs",
         "doctor:env": "npm --prefix server run doctor-env",
         "doctor:db": "npm --prefix server run doctor-db",
         "dev:client": "npm --prefix client run dev",
