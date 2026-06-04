@@ -196,3 +196,7 @@ Nginx 褰撳墠浼氭妸鍚庣娴侀噺鍒嗗彂鍒帮細
 
 - [环境变量说明](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\production-config.md)
 
+## 健康检查与排障
+
+- [健康检查与排障说明](C:\Users\33981\Documents\MyProjects\Web\The-campus-market\deploy\health-troubleshooting.md)
+
