@@ -3,6 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, deleteManagedUploadsIfOrphan } = require("../utils/upload");
+const { buildLockName, withNamedLock } = require("../utils/db-lock");
 const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const { logError } = require("../utils/logger");
 const {
@@ -36,17 +37,30 @@ router.post("/", authMiddleware, async (req, res) => {
         return res.json({ code: 400, message: getUserFacingMessage(error, "帖子图片格式不正确") });
     }
     const db = getDb();
-    const duplicatedPost = await db.prepare(`
-        SELECT id
-        FROM posts
-        WHERE author_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
-        LIMIT 1
-    `).get(req.user.id, normalizedContent);
-    if (duplicatedPost) {
-        return res.json({ code: 400, message: "请勿重复提交相同帖子" });
+    let r;
+    try {
+        await db.transaction(async (tx) => {
+            await withNamedLock(tx, buildLockName("post-create", req.user.id, normalizedContent), async () => {
+                const duplicatedPost = await tx.prepare(`
+                    SELECT id
+                    FROM posts
+                    WHERE author_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
+                    LIMIT 1
+                `).get(req.user.id, normalizedContent);
+                if (duplicatedPost) {
+                    throw new Error("DUPLICATE_POST");
+                }
+
+                r = await tx.prepare("INSERT INTO posts (author_id,content,images_json,campus) VALUES (?,?,?,?)")
+                    .run(req.user.id, normalizedContent, JSON.stringify(images), normalizedCampus);
+            });
+        });
+    } catch (error) {
+        if (error?.message === "DUPLICATE_POST") {
+            return res.json({ code: 400, message: "请勿重复提交相同帖子" });
+        }
+        throw error;
     }
-    const r = await db.prepare("INSERT INTO posts (author_id,content,images_json,campus) VALUES (?,?,?,?)")
-        .run(req.user.id, normalizedContent, JSON.stringify(images), normalizedCampus);
     const post = await db.prepare("SELECT p.*,u.nickname AS author_name,u.avatar_url AS author_avatar FROM posts p JOIN users u ON p.author_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
     post.images = JSON.parse(post.images_json); delete post.images_json;

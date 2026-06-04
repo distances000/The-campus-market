@@ -118,11 +118,18 @@ async function markConversationAsRead(db, currentUserId, peerUserId) {
         WHERE receiver_id=? AND sender_id=? AND is_read=0
     `).get(currentUserId, peerUserId);
 
+    if (!unread?.last_read_message_id) {
+        return {
+            changes: 0,
+            last_read_message_id: null
+        };
+    }
+
     const result = await db.prepare(`
         UPDATE messages
         SET is_read=1
-        WHERE receiver_id=? AND sender_id=? AND is_read=0
-    `).run(currentUserId, peerUserId);
+        WHERE receiver_id=? AND sender_id=? AND is_read=0 AND id<=?
+    `).run(currentUserId, peerUserId, unread.last_read_message_id);
 
     if (result.changes > 0 && unread.last_read_message_id) {
         await emitConversationRead(db, {
@@ -174,20 +181,33 @@ router.post("/", authMiddleware, async (req, res) => {
     if (!await db.prepare("SELECT id FROM users WHERE id=?").get(receiverId)) {
         return res.json({ code: 404, message: "用户不存在" });
     }
-    const duplicatedMessage = await db.prepare(`
-        SELECT id
-        FROM messages
-        WHERE sender_id=? AND receiver_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 SECOND)
-        LIMIT 1
-    `).get(req.user.id, receiverId, normalizedContent);
-    if (duplicatedMessage) {
-        return res.json({ code: 400, message: "请勿重复发送相同消息" });
-    }
 
-    const result = await db.prepare(`
-        INSERT INTO messages (sender_id, receiver_id, content)
-        VALUES (?, ?, ?)
-    `).run(req.user.id, receiverId, normalizedContent);
+    let result;
+    try {
+        await db.transaction(async (tx) => {
+            await withNamedLock(tx, buildLockName("message-send", req.user.id, receiverId, normalizedContent), async () => {
+                const duplicatedMessage = await tx.prepare(`
+                    SELECT id
+                    FROM messages
+                    WHERE sender_id=? AND receiver_id=? AND content=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 SECOND)
+                    LIMIT 1
+                `).get(req.user.id, receiverId, normalizedContent);
+                if (duplicatedMessage) {
+                    throw new Error("DUPLICATE_MESSAGE");
+                }
+
+                result = await tx.prepare(`
+                    INSERT INTO messages (sender_id, receiver_id, content)
+                    VALUES (?, ?, ?)
+                `).run(req.user.id, receiverId, normalizedContent);
+            });
+        });
+    } catch (error) {
+        if (error?.message === "DUPLICATE_MESSAGE") {
+            return res.json({ code: 400, message: "请勿重复发送相同消息" });
+        }
+        throw error;
+    }
 
     const message = await emitMessageCreated(db, result.lastInsertRowid);
     return res.json({ code: 200, message: "发送成功", data: message });

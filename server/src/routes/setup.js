@@ -14,7 +14,7 @@ router.post("/bootstrap-admin", authMiddleware, async (req, res) => {
     const configuredKey = normalizeText(process.env.ADMIN_BOOTSTRAP_KEY);
 
     if (!configuredKey || bootstrapKey !== configuredKey) {
-        return res.status(403).json({ code: 403, message: "绠＄悊鍛樺垵濮嬪寲瀵嗛挜涓嶆纭?" });
+        return res.status(403).json({ code: 403, message: "管理员初始化密钥不正确" });
     }
 
     const db = getDb();
@@ -38,7 +38,7 @@ router.post("/bootstrap-admin", authMiddleware, async (req, res) => {
         });
     } catch (error) {
         if (error?.message === "ADMIN_ALREADY_EXISTS") {
-            return res.status(403).json({ code: 403, message: "绠＄悊鍛樺凡瀛樺湪锛屼笉鑳介噸澶嶅垵濮嬪寲" });
+            return res.status(403).json({ code: 403, message: "管理员已存在，不能重复初始化" });
         }
         throw error;
     }
@@ -51,7 +51,7 @@ router.post("/bootstrap-admin", authMiddleware, async (req, res) => {
 
     return res.json({
         code: 200,
-        message: "绠＄悊鍛樺垵濮嬪寲鎴愬姛",
+        message: "管理员初始化成功",
         data: {
             user: {
                 ...user,

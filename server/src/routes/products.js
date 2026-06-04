@@ -3,6 +3,7 @@ const { getDb } = require("../config/db");
 const { authMiddleware, optionalAuth } = require("../middleware/auth");
 const { createNotification } = require("../utils/notifications");
 const { normalizeImageList, getRemovedManagedUrls, deleteManagedUploadsIfOrphan } = require("../utils/upload");
+const { buildLockName, withNamedLock } = require("../utils/db-lock");
 const { getUserFacingMessage, isDuplicateEntryError } = require("../utils/error");
 const { logError } = require("../utils/logger");
 const {
@@ -79,17 +80,30 @@ router.post("/", authMiddleware, async (req, res) => {
         return res.json({ code: 400, message: getUserFacingMessage(error, "商品图片格式不正确") });
     }
     const db = getDb();
-    const duplicatedProduct = await db.prepare(`
-        SELECT id
-        FROM products
-        WHERE seller_id=? AND title=? AND price=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
-        LIMIT 1
-    `).get(req.user.id, normalizedTitle, normalizedPrice);
-    if (duplicatedProduct) {
-        return res.json({ code: 400, message: "请勿重复提交相同商品" });
+    let r;
+    try {
+        await db.transaction(async (tx) => {
+            await withNamedLock(tx, buildLockName("product-create", req.user.id, normalizedTitle, normalizedPrice), async () => {
+                const duplicatedProduct = await tx.prepare(`
+                    SELECT id
+                    FROM products
+                    WHERE seller_id=? AND title=? AND price=? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 SECOND)
+                    LIMIT 1
+                `).get(req.user.id, normalizedTitle, normalizedPrice);
+                if (duplicatedProduct) {
+                    throw new Error("DUPLICATE_PRODUCT");
+                }
+
+                r = await tx.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
+                    .run(req.user.id, normalizedTitle, normalizedDescription, normalizedPrice, normalizedOriginalPrice, normalizedCategory, normalizedCondition, normalizedCampus, JSON.stringify(images));
+            });
+        });
+    } catch (error) {
+        if (error?.message === "DUPLICATE_PRODUCT") {
+            return res.json({ code: 400, message: "请勿重复提交相同商品" });
+        }
+        throw error;
     }
-    const r = await db.prepare("INSERT INTO products (seller_id,title,description,price,original_price,category,`condition`,campus,images_json) VALUES (?,?,?,?,?,?,?,?,?)")
-        .run(req.user.id, normalizedTitle, normalizedDescription, normalizedPrice, normalizedOriginalPrice, normalizedCategory, normalizedCondition, normalizedCampus, JSON.stringify(images));
     const p = await db.prepare("SELECT p.*,u.nickname AS seller_name,u.avatar_url AS seller_avatar FROM products p JOIN users u ON p.seller_id=u.id WHERE p.id=?")
         .get(r.lastInsertRowid);
     p.images = JSON.parse(p.images_json); delete p.images_json;

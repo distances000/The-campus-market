@@ -9,6 +9,7 @@ const {
 } = require("../services/email");
 const { getUserFacingMessage, isDuplicateEntryError, logServerError } = require("../utils/error");
 const { buildRequestMeta, logError, logInfo, logWarn } = require("../utils/logger");
+const { buildLockName, withNamedLock } = require("../utils/db-lock");
 
 const router = express.Router();
 
@@ -100,44 +101,63 @@ router.post("/register/send-email-code", async (req, res) => {
     }
 
     const db = getDb();
-    if (await db.prepare("SELECT id FROM users WHERE email=?").get(email)) {
-        logWarn("auth.email_code_rejected", "邮箱验证码发送被拒绝：邮箱已注册", buildRequestMeta(req, { email }));
-        return res.json({ code: 400, message: "邮箱已被注册" });
-    }
+    let code = "";
+    let verificationRecordId = null;
 
-    const latest = await getLatestVerificationRecord(db, email, purpose);
-    const cooldownSeconds = Number.parseInt(process.env.EMAIL_CODE_COOLDOWN_SECONDS || "60", 10);
-    if (latest && latest.last_sent_at && !latest.consumed_at) {
-        const secondsSinceLastSent = Number.parseInt(latest.seconds_since_last_sent, 10);
-        if (Number.isFinite(secondsSinceLastSent) && secondsSinceLastSent < cooldownSeconds) {
-            const remainingSeconds = Math.max(1, cooldownSeconds - Math.max(0, secondsSinceLastSent));
-            logWarn("auth.email_code_rate_limited", "邮箱验证码发送过于频繁", buildRequestMeta(req, {
-                email,
-                remaining_seconds: remainingSeconds
-            }));
+    try {
+        await db.transaction(async (tx) => {
+            await withNamedLock(tx, buildLockName("email-code", purpose, email), async () => {
+                if (await tx.prepare("SELECT id FROM users WHERE email=?").get(email)) {
+                    logWarn("auth.email_code_rejected", "邮箱验证码发送被拒绝：邮箱已注册", buildRequestMeta(req, { email }));
+                    throw new Error("EMAIL_ALREADY_REGISTERED");
+                }
+
+                const latest = await getLatestVerificationRecord(tx, email, purpose);
+                const cooldownSeconds = Number.parseInt(process.env.EMAIL_CODE_COOLDOWN_SECONDS || "60", 10);
+                if (latest && latest.last_sent_at && !latest.consumed_at) {
+                    const secondsSinceLastSent = Number.parseInt(latest.seconds_since_last_sent, 10);
+                    if (Number.isFinite(secondsSinceLastSent) && secondsSinceLastSent < cooldownSeconds) {
+                        const error = new Error("EMAIL_CODE_RATE_LIMITED");
+                        error.remainingSeconds = Math.max(1, cooldownSeconds - Math.max(0, secondsSinceLastSent));
+                        logWarn("auth.email_code_rate_limited", "邮箱验证码发送过于频繁", buildRequestMeta(req, {
+                            email,
+                            remaining_seconds: error.remainingSeconds
+                        }));
+                        throw error;
+                    }
+                }
+
+                code = generateVerificationCode();
+                const codeHash = getVerificationCodeHash(email, purpose, code);
+                const ttlSeconds = Number.parseInt(process.env.EMAIL_CODE_TTL_SECONDS || "300", 10);
+
+                const insertResult = await tx.prepare(`
+                    INSERT INTO verification_codes (
+                        contact,
+                        purpose,
+                        code_hash,
+                        verify_attempts,
+                        send_count,
+                        request_ip,
+                        last_sent_at,
+                        expires_at
+                    ) VALUES (?, ?, ?, 0, 1, ?, CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? SECOND))
+                `).run(email, purpose, codeHash, normalizeText(req.ip || ""), ttlSeconds);
+                verificationRecordId = insertResult.lastInsertRowid;
+            });
+        });
+    } catch (error) {
+        if (error?.message === "EMAIL_ALREADY_REGISTERED") {
+            return res.json({ code: 400, message: "邮箱已被注册" });
+        }
+        if (error?.message === "EMAIL_CODE_RATE_LIMITED") {
             return res.status(429).json({
                 code: 429,
-                message: `验证码发送过于频繁，请 ${remainingSeconds} 秒后再试`
+                message: `验证码发送过于频繁，请 ${Number(error.remainingSeconds || 1)} 秒后再试`
             });
         }
+        throw error;
     }
-
-    const code = generateVerificationCode();
-    const codeHash = getVerificationCodeHash(email, purpose, code);
-    const ttlSeconds = Number.parseInt(process.env.EMAIL_CODE_TTL_SECONDS || "300", 10);
-
-    const result = await db.prepare(`
-        INSERT INTO verification_codes (
-            contact,
-            purpose,
-            code_hash,
-            verify_attempts,
-            send_count,
-            request_ip,
-            last_sent_at,
-            expires_at
-        ) VALUES (?, ?, ?, 0, 1, ?, CURRENT_TIMESTAMP, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? SECOND))
-    `).run(email, purpose, codeHash, normalizeText(req.ip || ""), ttlSeconds);
 
     try {
         await sendVerificationEmail({
@@ -146,7 +166,9 @@ router.post("/register/send-email-code", async (req, res) => {
             purpose
         });
     } catch (error) {
-        await db.prepare("DELETE FROM verification_codes WHERE id=?").run(result.lastInsertRowid);
+        if (verificationRecordId) {
+            await db.prepare("DELETE FROM verification_codes WHERE id=?").run(verificationRecordId);
+        }
         logError("auth.email_code_send_failed", "邮箱验证码发送失败", error, buildRequestMeta(req, { email, purpose }));
         logServerError(error, "send register email code");
         return res.status(500).json({
@@ -297,12 +319,6 @@ router.put("/me", authMiddleware, async (req, res) => {
         if (normalizedEmail && !isValidEmail(normalizedEmail)) {
             return res.json({ code: 400, message: "请输入正确的邮箱地址" });
         }
-        if (normalizedEmail) {
-            const existingEmail = await db.prepare("SELECT id FROM users WHERE email=? AND id<>?").get(normalizedEmail, req.user.id);
-            if (existingEmail) {
-                return res.json({ code: 400, message: "邮箱已被其他账号绑定" });
-            }
-        }
         fields.push("email=?");
         values.push(normalizedEmail || null);
     }
@@ -314,7 +330,14 @@ router.put("/me", authMiddleware, async (req, res) => {
     fields.push("updated_at=CURRENT_TIMESTAMP");
     values.push(req.user.id);
 
-    await db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id=?`).run(...values);
+    try {
+        await db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id=?`).run(...values);
+    } catch (error) {
+        if (isDuplicateEntryError(error)) {
+            return res.json({ code: 400, message: "邮箱已被其他账号绑定" });
+        }
+        throw error;
+    }
     const user = await getPublicUserById(db, req.user.id);
     return res.json({ code: 200, message: "资料已更新", data: user });
 });
@@ -385,28 +408,40 @@ router.post("/forgot-password/request", async (req, res) => {
         return res.json({ code: 400, message: "邮箱与账号绑定信息不一致" });
     }
 
-    const pendingRequest = await db.prepare(`
-        SELECT id
-        FROM password_reset_requests
-        WHERE user_id=? AND status IN ('pending', 'reviewing')
-        ORDER BY id DESC
-        LIMIT 1
-    `).get(user.id);
-    if (pendingRequest) {
-        return res.json({ code: 400, message: "你已存在待处理的找回申请，请先等待处理结果" });
-    }
+    let result;
+    try {
+        await db.transaction(async (tx) => {
+            await withNamedLock(tx, buildLockName("password-reset", user.id), async () => {
+                const pendingRequest = await tx.prepare(`
+                    SELECT id
+                    FROM password_reset_requests
+                    WHERE user_id=? AND status IN ('pending', 'reviewing')
+                    ORDER BY id DESC
+                    LIMIT 1
+                `).get(user.id);
+                if (pendingRequest) {
+                    throw new Error("PASSWORD_RESET_PENDING");
+                }
 
-    const result = await db.prepare(`
-        INSERT INTO password_reset_requests (
-            user_id,
-            username_snapshot,
-            request_email,
-            request_phone,
-            resolution_note,
-            reason,
-            status
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
-    `).run(user.id, user.username, email, "", "", reason);
+                result = await tx.prepare(`
+                    INSERT INTO password_reset_requests (
+                        user_id,
+                        username_snapshot,
+                        request_email,
+                        request_phone,
+                        resolution_note,
+                        reason,
+                        status
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                `).run(user.id, user.username, email, "", "", reason);
+            });
+        });
+    } catch (error) {
+        if (error?.message === "PASSWORD_RESET_PENDING") {
+            return res.json({ code: 400, message: "你已存在待处理的找回申请，请先等待处理结果" });
+        }
+        throw error;
+    }
 
     const requestInfo = await db.prepare(`
         SELECT id, user_id, username_snapshot, request_email, reason, status, resolution_note, created_at, handled_at
