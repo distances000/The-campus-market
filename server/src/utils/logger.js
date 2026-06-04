@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { classifyError } = require("./error");
 
 function createRequestId() {
     return crypto.randomUUID();
@@ -75,13 +76,26 @@ function logWarn(event, message, meta = {}) {
     writeLog("warn", event, message, meta);
 }
 
-function logError(event, message, error, meta = {}) {
-    writeLog("error", event, message, {
+function buildErrorMeta(error, meta = {}) {
+    const classification = classifyError(error);
+    return {
         ...meta,
+        error_kind: classification.kind,
+        error_status: classification.status,
+        error_code: classification.code,
         error_name: error?.name,
         error_message: error?.message,
         error_stack: error?.stack
-    });
+    };
+}
+
+function logError(event, message, error, meta = {}) {
+    writeLog("error", event, message, buildErrorMeta(error, meta));
+}
+
+function logByError(event, message, error, meta = {}) {
+    const classification = classifyError(error);
+    writeLog(classification.logLevel, event, message, buildErrorMeta(error, meta));
 }
 
 function attachRequestContext(req, res, next) {
@@ -95,5 +109,6 @@ module.exports = {
     buildRequestMeta,
     logInfo,
     logWarn,
-    logError
+    logError,
+    logByError
 };

@@ -7,8 +7,9 @@ const { initDatabase } = require("./models/init");
 const { attachRealtimeServer } = require("./utils/realtime");
 const { getRuntimeConfig, validateRuntimeConfig, formatRuntimeSummary } = require("./config/runtime");
 const { UPLOAD_DIR, UPLOAD_PUBLIC_PREFIX } = require("./utils/upload");
-const { getErrorCode, getStatusCode, getUserFacingMessage, logServerError } = require("./utils/error");
-const { attachRequestContext, buildRequestMeta, logError, logInfo } = require("./utils/logger");
+const { classifyError, getErrorCode, getStatusCode, getUserFacingMessage, logServerError } = require("./utils/error");
+const { attachRequestContext, buildRequestMeta, logByError, logError, logInfo } = require("./utils/logger");
+
 const app = express();
 
 loadAppEnv();
@@ -17,7 +18,7 @@ const runtimeConfig = getRuntimeConfig();
 const runtimeCheck = validateRuntimeConfig(runtimeConfig);
 
 if (!runtimeCheck.valid) {
-    console.error("生产/运行环境配置不完整：");
+    console.error("生产运行环境配置不完整：");
     runtimeCheck.errors.forEach((message) => console.error(`- ${message}`));
     process.exit(1);
 }
@@ -41,22 +42,49 @@ app.use("/api/moderation", require("./routes/moderation"));
 app.use("/api/setup", require("./routes/setup"));
 app.use("/api/upload", require("./routes/upload"));
 
-app.get("/api/health", (req, res) => res.json({ code: 200, message: "Server running", time: new Date().toISOString() }));
+app.get("/api/health", (req, res) => {
+    res.json({
+        code: 200,
+        message: "Server running",
+        time: new Date().toISOString()
+    });
+});
+
 app.use((err, req, res, next) => {
-    logError("http.unhandled_error", "请求处理发生未捕获异常", err, buildRequestMeta(req));
-    logServerError(err, `${req.method} ${req.originalUrl}`);
+    const classification = classifyError(err);
+    const event = classification.kind === "business" ? "http.business_error" : "http.system_error";
+    const message = classification.kind === "business" ? "请求触发业务错误" : "请求处理发生系统异常";
+
+    logByError(event, message, err, buildRequestMeta(req));
+
+    if (classification.kind === "system") {
+        logServerError(err, `${req.method} ${req.originalUrl}`);
+    }
+
     const status = getStatusCode(err, 500);
     const code = getErrorCode(err, status);
-    const message = getUserFacingMessage(err, "服务暂时不可用，请稍后再试");
-    res.status(status).json({ code, message });
+    const userMessage = getUserFacingMessage(err, "服务暂时不可用，请稍后再试");
+
+    res.status(status).json({
+        code,
+        message: userMessage,
+        error_type: classification.kind
+    });
 });
 
 async function bootstrap() {
     await initDatabase();
     const server = http.createServer(app);
     attachRealtimeServer(server);
-    logInfo("server.runtime_config", "运行时配置已加载", { runtime: formatRuntimeSummary(runtimeConfig) });
-    server.listen(PORT, () => logInfo("server.started", "服务已启动", { port: PORT, base_url: `http://localhost:${PORT}` }));
+    logInfo("server.runtime_config", "运行时配置已加载", {
+        runtime: formatRuntimeSummary(runtimeConfig)
+    });
+    server.listen(PORT, () => {
+        logInfo("server.started", "服务已启动", {
+            port: PORT,
+            base_url: `http://localhost:${PORT}`
+        });
+    });
 }
 
 bootstrap().catch((error) => {
