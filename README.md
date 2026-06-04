@@ -133,7 +133,7 @@ cmd /c npm run dev
 
 ### 一键本地检查
 
-根目录已经有统一入口：
+根目录已经有统一校验脚本入口：
 
 ```powershell
 cd C:\Users\33981\Documents\MyProjects\Web\The-campus-market
@@ -193,7 +193,7 @@ cd C:\Users\33981\Documents\MyProjects\Web\The-campus-market
 cmd /c npm run regress:local
 ```
 
-它会顺序执行：
+它会通过根目录脚本 `scripts/verify.mjs` 顺序执行：
 
 1. 前端生产构建
 2. 后端环境自检
@@ -213,7 +213,7 @@ cmd /c npm run regress:full
 cmd /c npm run verify:all
 ```
 
-这会额外覆盖：
+这同样通过根目录统一校验脚本执行，并额外覆盖：
 
 1. 页面访问冒烟
 2. 并发验证

@@ -8,6 +8,8 @@
         "doctor:db": "npm --prefix server run doctor-db",
         "dev:client": "npm --prefix client run dev",
         "dev:server": "npm --prefix server run dev",
+        "verify:script:local": "node scripts/verify.mjs local",
+        "verify:script:full": "node scripts/verify.mjs full",
         "smoke:core": "npm --prefix server run smoke-core-flow:self",
         "smoke:auth": "npm --prefix server run smoke-auth-flow:self",
         "test:integration": "npm --prefix server run integration-api:self",
@@ -16,8 +18,8 @@
         "smoke:concurrency": "npm --prefix server run concurrency-check:self",
         "smoke:critical": "npm run smoke:core && npm run smoke:auth && npm run test:integration && npm run test:repeat-submit",
         "smoke": "npm run smoke:critical && npm run smoke:page && npm run smoke:concurrency",
-        "regress:local": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke:critical",
-        "regress:full": "npm run verify:all",
-        "verify:all": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke"
+        "regress:local": "npm run verify:script:local",
+        "regress:full": "npm run verify:script:full",
+        "verify:all": "npm run verify:script:full"
     }
 }
