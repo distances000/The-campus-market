@@ -10,9 +10,10 @@
         "dev:server": "npm --prefix server run dev",
         "smoke:core": "npm --prefix server run smoke-core-flow:self",
         "smoke:auth": "npm --prefix server run smoke-auth-flow:self",
+        "test:integration": "npm --prefix server run integration-api:self",
         "smoke:page": "npm --prefix server run smoke-page-access:self",
         "smoke:concurrency": "npm --prefix server run concurrency-check:self",
-        "smoke:critical": "npm run smoke:core && npm run smoke:auth",
+        "smoke:critical": "npm run smoke:core && npm run smoke:auth && npm run test:integration",
         "smoke": "npm run smoke:critical && npm run smoke:page && npm run smoke:concurrency",
         "verify:all": "npm run build:client && npm run doctor:env && npm run doctor:db && npm run smoke"
     }

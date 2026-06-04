@@ -14,6 +14,8 @@
     "smoke-core-flow:self": "node scripts/run-with-server.js scripts/smoke-core-flow.js",
     "smoke-auth-flow": "node scripts/smoke-auth-flow.js",
     "smoke-auth-flow:self": "node scripts/run-with-server.js scripts/smoke-auth-flow.js",
+    "integration-api": "node scripts/integration-api.js",
+    "integration-api:self": "node scripts/run-with-server.js scripts/integration-api.js",
     "smoke-page-access": "node scripts/smoke-page-access.js",
     "smoke-page-access:self": "node scripts/run-with-server-and-page.js scripts/smoke-page-access.js",
     "concurrency-check": "node scripts/concurrency-check.js",
