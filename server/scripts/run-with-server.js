@@ -18,7 +18,8 @@ async function main() {
         ...process.env,
         PORT: String(apiBase.port),
         SMOKE_API_HOST: apiBase.hostname,
-        SMOKE_API_PORT: String(apiBase.port)
+        SMOKE_API_PORT: String(apiBase.port),
+        ADMIN_BOOTSTRAP_KEY: process.env.ADMIN_BOOTSTRAP_KEY || "test-bootstrap-key"
     };
 
     const server = spawn(process.execPath, [path.join(serverDir, "src", "index.js")], {

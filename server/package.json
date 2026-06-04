@@ -16,6 +16,8 @@
     "smoke-auth-flow:self": "node scripts/run-with-server.js scripts/smoke-auth-flow.js",
     "integration-api": "node scripts/integration-api.js",
     "integration-api:self": "node scripts/run-with-server.js scripts/integration-api.js",
+    "repeat-submit-check": "node scripts/repeat-submit-check.js",
+    "repeat-submit-check:self": "node scripts/run-with-server.js scripts/repeat-submit-check.js",
     "smoke-page-access": "node scripts/smoke-page-access.js",
     "smoke-page-access:self": "node scripts/run-with-server-and-page.js scripts/smoke-page-access.js",
     "concurrency-check": "node scripts/concurrency-check.js",
